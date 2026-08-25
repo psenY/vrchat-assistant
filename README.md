@@ -33,6 +33,12 @@
 2. 启动服务：`node start-monitor.js`
 3. 验证：`curl http://127.0.0.1:8799/health` 返回 JSON 中 `auth.authenticated` 为 `true`、`ws.status` 为 `connected`
 
+### Web 控制台（只读 MVP）
+
+服务同时提供一个只读的 VRCX 风格 Web 控制台：`http://127.0.0.1:8799/web/`。页面展示在线好友、好友当前世界、活动事件和服务状态，数据直接复用本地 SQLite 与 WebSocket 采集结果，不会重复登录 VRChat，也不会新增数据库表。
+
+若部署环境在 HTTP 层要求 Bearer 访问令牌，可使用一次性 URL 参数打开：`http://127.0.0.1:8799/web/?token=<访问令牌>`。页面加载后会从地址栏移除参数，并仅在当前浏览器标签页的 `sessionStorage` 中保存令牌。不要把令牌写入源码、书签或公开链接；公网部署仍应使用 HTTPS 和额外访问控制。
+
 > 完整的凭据、环境变量、开机自启、插件安装等配置步骤，交给 AI Agent 按 [AGENTS.md](./AGENTS.md) 自动完成即可——你只需要提供账号和验收。
 
 ## 文档导航

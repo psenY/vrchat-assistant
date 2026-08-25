@@ -5,9 +5,77 @@
  */
 
 import http from 'node:http';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { ctx, log } from './server-context.js';
 import * as registry from './registry.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const WEB_DIR = path.join(__dirname, '..', 'web');
+const WEB_FILES = new Map([
+  ['/web/', ['index.html', 'text/html; charset=utf-8']],
+  ['/web/index.html', ['index.html', 'text/html; charset=utf-8']],
+  ['/web/app.css', ['app.css', 'text/css; charset=utf-8']],
+  ['/web/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+]);
+
+function sendJson(res, status, value) {
+  const body = JSON.stringify(value);
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body),
+    'Cache-Control': 'no-store',
+  });
+  res.end(body);
+}
+
+async function sendWebFile(req, res, pathname) {
+  const file = WEB_FILES.get(pathname);
+  if (!file) return false;
+  try {
+    let body = await readFile(path.join(WEB_DIR, file[0]));
+    if (file[0] === 'index.html') {
+      const token = new URL(req.url, 'http://localhost').searchParams.get('token');
+      const suffix = token ? `?token=${encodeURIComponent(token)}` : '';
+      body = Buffer.from(body.toString('utf8').replaceAll('__ASSET_QUERY__', suffix));
+    }
+    res.writeHead(200, {
+      'Content-Type': file[1],
+      'Content-Length': body.length,
+      'Cache-Control': 'no-cache',
+    });
+    res.end(body);
+  } catch (err) {
+    log(`Web file error: ${err.message}`);
+    sendJson(res, 404, { error: 'Web asset not found' });
+  }
+  return true;
+}
+
+async function handleWebApi(req, res, url) {
+  if (req.method !== 'GET') {
+    sendJson(res, 405, { error: '只读 Web API 仅支持 GET' });
+    return true;
+  }
+  try {
+    if (url.pathname === '/api/friends/online') {
+      sendJson(res, 200, await registry.dispatch('get_online_friends', {}));
+      return true;
+    }
+    if (url.pathname === '/api/events/recent') {
+      const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 30), 1), 100);
+      sendJson(res, 200, await registry.dispatch('get_recent_events', { limit }));
+      return true;
+    }
+    sendJson(res, 404, { error: 'Web API not found' });
+  } catch (err) {
+    log(`Web API failed: ${err.message}`);
+    sendJson(res, 502, { error: err.message });
+  }
+  return true;
+}
 
 // ── MCP 会话管理 ──
 const sessions = new Map();
@@ -55,9 +123,20 @@ export function sendError(res, id, message) {
 // ── 请求路由 ──
 async function handleRequest(req, res) {
   const { storage, rateLimiter, wsManager, friendState, eventPipeline, serverState, paths } = ctx;
+  const url = new URL(req.url, 'http://localhost');
+
+  if (url.pathname.startsWith('/web/')) {
+    await sendWebFile(req, res, url.pathname);
+    if (!res.writableEnded) sendJson(res, 404, { error: 'Web page not found' });
+    return;
+  }
+  if (url.pathname.startsWith('/api/')) {
+    await handleWebApi(req, res, url);
+    return;
+  }
 
   // Health check
-  if (req.method === 'GET' && req.url === '/health') {
+  if (req.method === 'GET' && url.pathname === '/health') {
     const uptime = serverState.started ? Math.floor((Date.now() - serverState.started) / 1000) : 0;
     const status = {
       ok: true,
@@ -82,20 +161,20 @@ async function handleRequest(req, res) {
   }
 
   // MCP endpoint probe
-  if (req.method === 'GET' && req.url === '/mcp') {
+  if (req.method === 'GET' && url.pathname === '/mcp') {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Content-Length': 0 });
     res.end();
     return;
   }
 
   // MCP session termination（SDK 关闭连接时调用，2026-08-17 加：之前 404 导致客户端 warning）
-  if (req.method === 'DELETE' && req.url === '/mcp') {
+  if (req.method === 'DELETE' && url.pathname === '/mcp') {
     res.writeHead(204);
     res.end();
     return;
   }
 
-  if (req.method !== 'POST' || req.url !== '/mcp') {
+  if (req.method !== 'POST' || url.pathname !== '/mcp') {
     res.writeHead(404);
     res.end('Not Found');
     return;

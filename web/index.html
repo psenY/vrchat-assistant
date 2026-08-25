@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>VRC Monitor</title>
+  <link rel="stylesheet" href="/web/app.css__ASSET_QUERY__">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">V</span><span>VRC Monitor</span></div>
+      <nav aria-label="主导航">
+        <a class="nav-link active" href="#dashboard">总览</a>
+        <a class="nav-link" href="#friends">在线好友</a>
+        <a class="nav-link" href="#events">活动记录</a>
+      </nav>
+      <div class="sidebar-foot"><span class="status-dot" id="status-dot"></span><span id="connection-label">正在连接</span></div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <div><p class="eyebrow">VRCHAT COMPANION</p><h1>活动总览</h1></div>
+        <button class="icon-button" id="refresh" title="刷新数据" aria-label="刷新数据">↻</button>
+      </header>
+      <div id="error" class="error" hidden></div>
+      <section class="stats-grid" aria-label="统计">
+        <article class="stat"><span class="stat-label">在线好友</span><strong id="online-count">-</strong><small id="friend-count">好友总数 -</small></article>
+        <article class="stat"><span class="stat-label">活动事件</span><strong id="event-count">-</strong><small>本地数据库累计</small></article>
+        <article class="stat"><span class="stat-label">WebSocket</span><strong id="ws-state">-</strong><small id="uptime">运行时间 -</small></article>
+      </section>
+      <section class="content-grid">
+        <article class="panel friends-panel" id="friends">
+          <div class="panel-head"><div><p class="eyebrow">FRIENDS</p><h2>在线好友</h2></div><span class="count-badge" id="online-badge">0</span></div>
+          <div id="friends-list" class="friend-list"><div class="empty">加载中...</div></div>
+        </article>
+        <article class="panel events-panel" id="events">
+          <div class="panel-head"><div><p class="eyebrow">TIMELINE</p><h2>最近活动</h2></div><span class="muted">实时数据</span></div>
+          <div id="events-list" class="event-list"><div class="empty">加载中...</div></div>
+        </article>
+      </section>
+    </main>
+  </div>
+  <script src="/web/app.js__ASSET_QUERY__" defer></script>
+</body>
+</html>
