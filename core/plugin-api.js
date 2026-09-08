@@ -138,7 +138,17 @@ const NON_TABLE_KEYWORDS = new Set([
 // PRAGMA 带表名参数的 pragma 名（PRAGMA table_info(plg_x_t) 等）
 const PRAGMA_TABLE_NAMES = new Set([
   'TABLE_INFO', 'TABLE_XINFO', 'INDEX_LIST', 'INDEX_INFO', 'INDEX_XINFO', 'FOREIGN_KEY_LIST',
+  'FOREIGN_KEY_CHECK',
 ]);
+// FROM 位置允许的表值函数（#167 ⚠️1：json_each 等返回行集而非读表，不构成越权）。
+// 集合外函数在表名位置仍按外来标识符拒绝（保守白名单制）。
+const TABLE_VALUED_FUNCTIONS = new Set([
+  'JSON_EACH', 'JSON_TREE', 'PRAGMA_TABLE_INFO', 'PRAGMA_TABLE_XINFO',
+  'GENERATE_SERIES', 'VALUE_LIST', 'SQLITE_EXPIRED_STATEMENTS',
+]);
+// 语句级拒绝：作用域为整个数据库/连接、不出现表名位置、可整库导出或外部挂载的语句
+// （#167 ⚠️2：VACUUM INTO 可整库导出；ATTACH/DETACH 挂载外部库后可跨库引用核心表）
+const FORBIDDEN_STATEMENTS = new Set(['VACUUM', 'ATTACH', 'DETACH']);
 
 /**
  * 白名单扫描：SQL 中表名位置的标识符必须全部以本插件 prefix 开头。
@@ -155,6 +165,7 @@ export function findForeignTableName(sql, prefix) {
   let pragmaPending = false;    // 语句首词是 PRAGMA，等待 pragma 名
   let onConsumed = false;       // 本语句首个 ON 是否已用于表名位置
   let inWith = false;           // WITH 子句中（收集 CTE 名）
+  let renameTo = false;         // ALTER ... RENAME TO 的目标名位置（review #169 建议#2）
   let parenDepth = 0;
   const cteNames = new Set();
 
@@ -166,6 +177,7 @@ export function findForeignTableName(sql, prefix) {
     pragmaPending = false;
     onConsumed = false;
     inWith = false;
+    renameTo = false;
   };
 
   while (i < n) {
@@ -248,6 +260,9 @@ export function findForeignTableName(sql, prefix) {
       // UPDATE/DELETE/DROP 等首词不 continue，继续参与表名引入判定。
       if (stmtFirst) {
         stmtFirst = false;
+        if (FORBIDDEN_STATEMENTS.has(up)) {
+          return `__stmt:${up}`;   // #167 ⚠️2：VACUUM/ATTACH/DETACH 作用域为整库，整条拒绝
+        }
         if (up === 'CREATE') { pendingCreate = true; continue; }
         if (up === 'WITH') { inWith = true; continue; }
         if (up === 'PRAGMA') { pragmaPending = true; continue; }
@@ -268,6 +283,11 @@ export function findForeignTableName(sql, prefix) {
       if (expectingTable) {
         if (TABLE_MODIFIER_KEYWORDS.has(up)) { /* 保持期待 */ }
         else if (NON_TABLE_KEYWORDS.has(up)) { expectingTable = false; }
+        else if (TABLE_VALUED_FUNCTIONS.has(up)) {
+          // 表值函数（json_each 等返回行集，不读表）→ 放行，跳过其括号参数
+          expectingTable = false;
+          continue;
+        }
         else if (cteNames.has(word.toLowerCase())) { expectingTable = false; }
         else {
           if (!word.toLowerCase().startsWith(prefix)) return word;
@@ -281,6 +301,11 @@ export function findForeignTableName(sql, prefix) {
         onConsumed = true;
         expectingTable = true;
       }
+      // ALTER ... RENAME TO <目标>（review #169 建议#2）：目标名与 FROM 同级校验
+      // RENAME COLUMN 的目标是列名，遇 COLUMN 即清除标志（与 rewrite 路径一致）
+      if (up === 'RENAME') renameTo = true;
+      if (up === 'COLUMN' && renameTo) renameTo = false;
+      if (up === 'TO' && renameTo) { renameTo = false; expectingTable = true; }
       continue;
     }
 
@@ -320,6 +345,7 @@ export function rewritePluginTableNames(sql, pluginName, prefix) {
   let stmtKind = 'other';
   let pendingCreate = false;
   let pendingAlter = false;
+  let renameTo = false;         // ALTER ... RENAME TO 的目标名位置（#167 💡6）
   let pragmaPending = false;
   let onConsumed = false;
   let inWith = false;
@@ -333,6 +359,7 @@ export function rewritePluginTableNames(sql, pluginName, prefix) {
     stmtKind = 'other';
     pendingCreate = false;
     pendingAlter = false;
+    renameTo = false;
     pragmaPending = false;
     onConsumed = false;
     inWith = false;
@@ -469,6 +496,12 @@ export function rewritePluginTableNames(sql, pluginName, prefix) {
 
       if (stmtFirst) {
         stmtFirst = false;
+        if (FORBIDDEN_STATEMENTS.has(up)) {
+          throw new Error(
+            `插件 ${pluginName} 不允许执行 ${up} 语句（作用域为整个数据库，` +
+            `插件沙箱只开放 ${prefix} 开头的表级操作）`
+          );
+        }
         if (up === 'CREATE') { pendingCreate = true; }
         if (up === 'ALTER') { pendingAlter = true; }
         if (up === 'WITH') { inWith = true; }
@@ -518,6 +551,11 @@ export function rewritePluginTableNames(sql, pluginName, prefix) {
         onConsumed = true;
         expectingTable = true;
       }
+      // ALTER ... RENAME TO <目标>（#167 💡6）：目标名与 FROM/INTO 同级校验/重写
+      // RENAME COLUMN（SQLite 3.25+）的目标是列名而非表名，遇 COLUMN 即清除标志（review #169 inline #1）
+      if (up === 'RENAME') renameTo = true;
+      if (up === 'COLUMN' && renameTo) renameTo = false;
+      if (up === 'TO' && renameTo) { renameTo = false; expectingTable = true; tableDef = true; }
 
       result += word;
       i = j;
@@ -558,6 +596,15 @@ function buildDbNamespace({ pluginName, prefix, ctx }) {
     // 2) 白名单：表名位置的标识符必须都是本插件前缀（核心表/其他插件表一律拒绝）
     const offender = findForeignTableName(sql, prefix);
     if (offender) {
+      // __stmt: 哨兵（findForeignTableName 返回）= 语句级拒绝（VACUUM/ATTACH/DETACH 等），
+      // 单独输出可读文案，避免误导插件作者以为是表名问题（review #169 💡2）
+      const stmtMatch = /^__stmt:([A-Za-z]+)$/.exec(offender);
+      if (stmtMatch) {
+        throw new Error(
+          `插件 ${pluginName} 不允许执行 ${stmtMatch[1]} 语句：作用域为整个数据库` +
+          `（可整库导出或挂载外部库，禁止在插件内执行）`
+        );
+      }
       const foreignPrefix = /^plg_[a-zA-Z0-9_-]+_/.exec(offender.toLowerCase())?.[0];
       if (foreignPrefix) {
         throw new Error(
