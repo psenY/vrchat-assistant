@@ -441,6 +441,23 @@ export default function register(api) {
     },
   });
 
+  // 群组帖子（群组对话框帖子 Tab）
+  api.http.registerRoute({
+    method: 'GET',
+    path: '/api/dashboard/group-posts',
+    handler: async (req, res) => {
+      try {
+        const u = new URL(req.url, 'http://localhost');
+        const groupId = String(u.searchParams.get('groupId') || '').trim();
+        if (!groupId.startsWith('grp_')) return sendJson(res, { ok: false, error: 'bad-params: 需要 grp_ 开头的 groupId' });
+        const r = await api.consume('dashboard.groupPosts', { groupId, n: Number(u.searchParams.get('n')) || 20, offset: Number(u.searchParams.get('offset')) || 0 });
+        sendJson(res, r);
+      } catch (e) {
+        sendJson(res, { ok: false, posts: [], error: String(e.message || e) });
+      }
+    },
+  });
+
   // 非好友追踪：备注（本地可恢复操作，safe-mode 下放行）
   api.http.registerRoute({
     method: 'POST',
@@ -932,6 +949,23 @@ export default function register(api) {
         }
       } catch (e) {
         sendJson(res, { events: [], error: String(e.message || e) });
+      }
+    },
+  });
+
+  // 群组帖子（群组对话框帖子 Tab）
+  api.http.registerRoute({
+    method: 'GET',
+    path: '/api/dashboard/group-posts',
+    handler: async (req, res) => {
+      try {
+        const u = new URL(req.url, 'http://localhost');
+        const groupId = String(u.searchParams.get('groupId') || '').trim();
+        if (!groupId.startsWith('grp_')) return sendJson(res, { ok: false, error: 'bad-params: 需要 grp_ 开头的 groupId' });
+        const r = await api.consume('dashboard.groupPosts', { groupId, n: Number(u.searchParams.get('n')) || 20, offset: Number(u.searchParams.get('offset')) || 0 });
+        sendJson(res, r);
+      } catch (e) {
+        sendJson(res, { ok: false, posts: [], error: String(e.message || e) });
       }
     },
   });
