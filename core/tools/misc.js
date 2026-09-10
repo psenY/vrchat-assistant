@@ -608,5 +608,22 @@ export const tools = [
       }
     },
     handler: async (args) => handleSetDynamicStatus(args)
+  },
+  {
+    "name": "get_inventory_global",
+    "description": "[inventory] List account-wide global inventory items (equip slots/description). Self only.",
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "n": { "type": "number", "default": 50, "description": "Max items (1-100, default 50)" }
+      }
+    },
+    handler: async (args) => handleGetInventoryGlobal(args)
+  },
+  {
+    "name": "get_inventory_drops",
+    "description": "[inventory] List pending inventory drops (empty = none pending). Self only.",
+    inputSchema: { "type": "object", "properties": {} },
+    handler: async (args) => handleGetInventoryDrops(args)
   }
 ];
