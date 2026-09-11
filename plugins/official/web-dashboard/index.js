@@ -441,23 +441,6 @@ export default function register(api) {
     },
   });
 
-  // 群组帖子（群组对话框帖子 Tab）
-  api.http.registerRoute({
-    method: 'GET',
-    path: '/api/dashboard/group-posts',
-    handler: async (req, res) => {
-      try {
-        const u = new URL(req.url, 'http://localhost');
-        const groupId = String(u.searchParams.get('groupId') || '').trim();
-        if (!groupId.startsWith('grp_')) return sendJson(res, { ok: false, error: 'bad-params: 需要 grp_ 开头的 groupId' });
-        const r = await api.consume('dashboard.groupPosts', { groupId, n: Number(u.searchParams.get('n')) || 20, offset: Number(u.searchParams.get('offset')) || 0 });
-        sendJson(res, r);
-      } catch (e) {
-        sendJson(res, { ok: false, posts: [], error: String(e.message || e) });
-      }
-    },
-  });
-
   // 非好友追踪：备注（本地可恢复操作，safe-mode 下放行）
   api.http.registerRoute({
     method: 'POST',
@@ -471,6 +454,28 @@ export default function register(api) {
         sendJson(res, r);
       } catch (e) {
         sendJson(res, { ok: false, error: String(e.message || e) });
+      }
+    },
+  });
+  // 群组帖子（群组对话框帖子 Tab）
+  api.http.registerRoute({
+    method: 'GET',
+    path: '/api/dashboard/group-posts',
+    handler: async (req, res) => {
+      try {
+        const u = new URL(req.url, 'http://localhost');
+        const groupId = String(u.searchParams.get('groupId') || '').trim();
+        if (!groupId.startsWith('grp_')) return sendJson(res, { ok: false, error: 'bad-params: 需要 grp_ 开头的 groupId' });
+        const n = Number(u.searchParams.get('n')) || 20;
+        const offset = Number(u.searchParams.get('offset')) || 0;
+        const ck = `posts:${groupId}:${n}:${offset}`;
+        const hit = groupsCache.get(ck);
+        if (hit && Date.now() - hit.at < 120000) return sendJson(res, hit.data); // 帖子低频变更，2min 缓存（review #178 💡3）
+        const r = await api.consume('dashboard.groupPosts', { groupId, n, offset });
+        groupsCache.set(ck, { at: Date.now(), data: r });
+        sendJson(res, r);
+      } catch (e) {
+        sendJson(res, { ok: false, posts: [], error: String(e.message || e) });
       }
     },
   });
@@ -929,6 +934,9 @@ export default function register(api) {
         if (hit && Date.now() - hit.at < GROUPS_TTL) return sendJson(res, hit.data);
         const r = await api.tools.call('get_group_invites', {});
         const data = { invites: (r && r.invites) || [], total: (r && r.total) || 0 };
+        for (const g of data.invites) {
+          if (g.iconUrl) g.iconUrl = imgProxyInline(g.iconUrl);
+        }
         groupsCache.set('invites', { at: Date.now(), data });
         sendJson(res, data);
       } catch (e) {
