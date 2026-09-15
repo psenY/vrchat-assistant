@@ -19,7 +19,13 @@ const WORLD_CACHE_TTL_MS = WORLD_CACHE_TTL_DAYS * 24 * 60 * 60 * 1000;
 // 失败冷却（审查 💡1）：与新鲜度阈值**解耦**——用 7 天 TTL 当冷却会让一次瞬时失败
 // （网络抖动/限流/超时）把展示名停在旧值最多 7 天（旧行为「每请求重试」顺带的自愈没了）。
 // 30 分钟足够压住「不可见世界每 ~2 分钟被重试」的配额浪费，又保留快速自愈。
-const WORLD_FETCH_COOLDOWN_MS = 30 * 60 * 1000;
+// 可配（审查 💡）：VRC_MONITOR_WORLD_FETCH_COOLDOWN_MS——非法值/0/负回落到 30 分钟；
+// 正数 <60s 钳到 60s（最小下限）。注意：负值走 Math.max 会被钳到 60s 而非回落默认
+// （方向=最激进重试，与冷却意图相反），故显式区分。
+const WORLD_FETCH_COOLDOWN_RAW = Number(process.env.VRC_MONITOR_WORLD_FETCH_COOLDOWN_MS);
+const WORLD_FETCH_COOLDOWN_MS = Number.isFinite(WORLD_FETCH_COOLDOWN_RAW) && WORLD_FETCH_COOLDOWN_RAW > 0
+  ? Math.max(60 * 1000, WORLD_FETCH_COOLDOWN_RAW)
+  : 30 * 60 * 1000;
 // 回源失败冷却（2026-09-15 审查 💡1）：dashboard.world 失败时不写占位 → 若不做冷却，
 // 一个永久 404/不可见的世界会在每次 friends 请求里被反复回源（前端 120s 轮询 → 最坏每 ~2 分钟一次）。
 // 内存 Map 即可（重启即重置 → 重试一次，可接受）；无 schema 变更。
