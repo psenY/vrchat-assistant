@@ -139,9 +139,12 @@ async function _refreshOnlineState() {
       displayName: f.displayName,
       location: f.location || '',
       worldId: f.worldId || (f.location || '').split(':')[0],
-      // 在线口径与 MCP get_online_friends 一致：仅「有有效 location」计在线（offline=false 返回含
-      // active/菜单中用户，location 为空者不算在线——issue #114 ⚠️2 复测遗留修复）
-      isOnline: !!(f.location && f.location !== 'offline'),
+      // 在线口径（2026-09-15 修正）：有有效 location（游戏内）**或网页端在线**（platform=web，
+      // location='offline'）都计在线——好友列表的「网页端在线自愈」本就标 is_online=1、
+      // UI 的 isWebOnline 也依赖 isOnline=true，若这里只算游戏内，状态文案数字与好友列表
+      // 总数会分叉（用户报障：在线 N 人 vs 实际）。issue #114 排除的是**无位置的 active/
+      // 菜单中用户**（location 为空、非 web），仍然排除 ✓
+      isOnline: !!(f.location && f.location !== 'offline') || isWebPresence(f.platform),
     })));
     // 网页端在线自愈（2026-09-10 用户报 bug：转网页在线后 friends 表残留最后进房世界）。
     // REST 在线列表里 location='offline' 的条目=仅网页在线（VRChat 语义），把 platform/location
