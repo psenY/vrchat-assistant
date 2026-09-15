@@ -22,7 +22,9 @@ export async function refreshFriendList(ctx, log) {
   try {
     for (;;) {
       const r = await rateLimiter.execute(() =>
-        api._request('GET', `/auth/user/friends?offset=${offset}&n=${PAGE}`)
+        // offline=true 必须：VRChat 的 /auth/user/friends 默认只返回**在线**好友，
+        // 不带该参数会漏掉全部离线好友（首轮实测只拉到 3 位=当前在线数）。
+        api._request('GET', `/auth/user/friends?offset=${offset}&n=${PAGE}&offline=true`)
       );
       if (r.status !== 200 || !Array.isArray(r.data)) {
         log(`[警告] 好友列表刷新失败: HTTP ${r.status}`);
