@@ -263,7 +263,7 @@ async function refresh() {
     <InstanceDialog />
     <AvatarDialog />
     <Dialog v-model:visible="store.previewUrl" header="图片预览" :style="{ width: 'min(720px, 96vw)' }" :dismissable-mask="true">
-      <img v-if="store.previewUrl" :src="store.previewUrl" style="width:100%; border-radius:8px" alt="预览" />
+      <img v-if="store.previewUrl" :src="store.previewUrl" style="max-width:100%; max-height:70vh; width:auto; height:auto; display:block; margin:0 auto; border-radius:8px" alt="预览" />
     </Dialog>
     <Toast position="bottom-center" />
     <ConfirmDialog />
