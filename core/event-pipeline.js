@@ -260,6 +260,19 @@ export class EventPipeline {
         if (pronounsChanged) {
           changes.push({ type: 'pronouns', payload: { pronouns: userObj.pronouns || '', previousPronouns: prev.pronouns || '' } });
         }
+
+        // 信任等级（2026-09-15 用户报障）：此前五类资料变更都跟踪、唯独漏了 trust_level——
+        // 且回写也不带 trustLevel → 好友等级变化既无事件、基线也永远不更新（生产实证：
+        // XIAOFANG小芳已升 Trusted User，库内仍停 Known User）。VRChat 的 user 对象
+        // 携带 trust_level（LimitedUser 字段），与其它字段同源 diff 即可。
+        const trustChanged = prev.trust_level
+          && (prev.trust_level || '') !== (userObj.trust_level || '');
+        if (trustChanged) {
+          changes.push({ type: 'trust_level', payload: {
+            trustLevel: userObj.trust_level || '',
+            previousTrustLevel: prev.trust_level || '',
+          }});
+        }
         for (const c of changes) {
           this.storage.insertEvent({
             type: 'friend-update',
@@ -304,6 +317,10 @@ export class EventPipeline {
               log.info(`${displayName} 代词变更: ${prevPr} → ${newPr}`);
               break;
             }
+            case 'trust_level': {
+              log.info(`${displayName} 等级变更: ${c.payload.previousTrustLevel || '(无)'} → ${c.payload.trustLevel || '(无)'}`);
+              break;
+            }
           }
         }
       }
@@ -317,6 +334,7 @@ export class EventPipeline {
         bio: userObj.bio || '',
         userIcon: userObj.userIcon || '',
         pronouns: userObj.pronouns || '',
+        ...(userObj.trust_level ? { trustLevel: userObj.trust_level } : {}),
         lastSeen: event.receivedAt,
       });
     } else {
