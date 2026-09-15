@@ -12,6 +12,26 @@
  *     source='poll'），让「监控不到等级变化」在无 WS 事件时也能闭环。
  * 失败仅 WARN 一行、不抛；限流走 ctx.rateLimiter。
  */
+// 信任等级：VRChat 官方展示以 tags 为准（system_trust_*），/auth/user/friends 的
+// trust_level 字段可能滞后（2026-09-15 实测：小芳 tags 已含 system_trust_trusted，
+// 列表字段仍报 Known User）。故以 tags 推导优先、字段兜底。层级：New < Known < Trusted < Veteran。
+const TRUST_FROM_TAG = {
+  system_trust_basic: 'New User',
+  system_trust_known: 'Known User',
+  system_trust_trusted: 'Trusted User',
+  system_trust_veteran: 'Veteran User',
+};
+const TRUST_ORDER = ['New User', 'Known User', 'Trusted User', 'Veteran User'];
+export function trustFromTags(tags) {
+  if (!Array.isArray(tags)) return '';
+  let best = '';
+  for (const tag of tags) {
+    const v = TRUST_FROM_TAG[tag];
+    if (v && (!best || TRUST_ORDER.indexOf(v) > TRUST_ORDER.indexOf(best))) best = v;
+  }
+  return best;
+}
+
 export async function refreshFriendList(ctx, log) {
   const { api, rateLimiter, storage } = ctx;
   if (!api || !rateLimiter || !storage) return;
@@ -35,8 +55,9 @@ export async function refreshFriendList(ctx, log) {
       for (const u of page) {
         total += 1;
         const prev = storage.getFriend(u.id);
+        const trust = trustFromTags(u.tags) || u.trust_level || '';   // tags 优先（见文件头注释）
         // ① trust_level 变化记录（有基线才报，与 _handleUpdate 同规则）
-        if (prev && prev.user_id && prev.trust_level && u.trust_level && prev.trust_level !== u.trust_level) {
+        if (prev && prev.user_id && prev.trust_level && trust && prev.trust_level !== trust) {
           try {
             storage.insertEvent({
               type: 'friend-update',
@@ -46,7 +67,7 @@ export async function refreshFriendList(ctx, log) {
                 userId: u.id,
                 displayName: u.displayName || prev.display_name || '',
                 type: 'trust_level',
-                trustLevel: u.trust_level,
+                trustLevel: trust,
                 previousTrustLevel: prev.trust_level,
               },
               worldId: '',
@@ -54,7 +75,7 @@ export async function refreshFriendList(ctx, log) {
               createdAt: new Date().toISOString(),
               source: 'poll',
             });
-            log(`[追踪] 好友等级变化: ${u.displayName || u.id}: ${prev.trust_level} → ${u.trust_level}`);
+            log(`[追踪] 好友等级变化: ${u.displayName || u.id}: ${prev.trust_level} → ${trust}`);
             trustChanged += 1;
           } catch { /* 记录失败不影响刷新 */ }
         }
@@ -68,7 +89,7 @@ export async function refreshFriendList(ctx, log) {
           ...(u.bio ? { bio: u.bio } : {}),
           ...(u.userIcon ? { userIcon: u.userIcon } : {}),
           ...(u.pronouns ? { pronouns: u.pronouns } : {}),
-          ...(u.trust_level ? { trustLevel: u.trust_level } : {}),
+          ...(trust ? { trustLevel: trust } : {}),
         });
       }
       if (page.length < PAGE) break;

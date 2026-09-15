@@ -23,6 +23,8 @@ function truncateCodePoints(str, max) {
  * 
  * 将 WebSocket 事件标准化并持久化到 SQLite
  */
+import { trustFromTags } from './friend-refresh.js';
+
 export class EventPipeline {
   constructor(storage, worldCache) {
     this.storage = storage;
@@ -220,6 +222,8 @@ export class EventPipeline {
     // 无历史快照（首次采集）或字段无基线值时只初始化，不误报变更。
     const userObj = event.content && event.content.user ? event.content.user : null;
     if (userObj) {
+      // trust 在此层计算：diff 与最终 upsertFriend 都用（tags 优先，见 friend-refresh.js 头注释）
+      const trust = trustFromTags(userObj.tags) || userObj.trust_level || '';
       const prev = this.storage.getFriend(userId);
       if (prev && prev.user_id) {
         const changes = [];
@@ -266,10 +270,10 @@ export class EventPipeline {
         // XIAOFANG小芳已升 Trusted User，库内仍停 Known User）。VRChat 的 user 对象
         // 携带 trust_level（LimitedUser 字段），与其它字段同源 diff 即可。
         const trustChanged = prev.trust_level
-          && (prev.trust_level || '') !== (userObj.trust_level || '');
+          && (prev.trust_level || '') !== trust;
         if (trustChanged) {
           changes.push({ type: 'trust_level', payload: {
-            trustLevel: userObj.trust_level || '',
+            trustLevel: trust,
             previousTrustLevel: prev.trust_level || '',
           }});
         }
@@ -334,7 +338,7 @@ export class EventPipeline {
         bio: userObj.bio || '',
         userIcon: userObj.userIcon || '',
         pronouns: userObj.pronouns || '',
-        ...(userObj.trust_level ? { trustLevel: userObj.trust_level } : {}),
+        ...(trust ? { trustLevel: trust } : {}),
         lastSeen: event.receivedAt,
       });
     } else {

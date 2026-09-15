@@ -88,3 +88,16 @@ test('API 失败：记警告、不抛', async () => {
   await refreshFriendList(ctx, (m) => logsArr.push(m));
   assert.ok(logsArr.some((l) => l.includes('[警告]') && l.includes('HTTP 500')));
 });
+
+test('tags 推导：列表字段缺/滞后时以 system_trust_* 为准（小芳实测场景）', async () => {
+  // 模拟：API trust_level 滞后仍报 Known User，但 tags 已含 system_trust_trusted
+  const { ctx, events, upserts } = makeCtx({
+    pages: [[{ id: 'usr_xf', displayName: 'XIAOFANG小芳', trust_level: 'Known User', tags: ['system_trust_trusted'], status: 'active', statusDescription: '', currentAvatarImageUrl: '', bio: '', userIcon: '', pronouns: '' }]],
+    getFriend: () => ({ user_id: 'usr_xf', display_name: 'XIAOFANG小芳', trust_level: 'Known User' }),
+  });
+  await refreshFriendList(ctx, () => {});
+  const tl = events.filter((e) => e.type === 'friend-update' && e.contentJson && e.contentJson.type === 'trust_level');
+  assert.equal(tl.length, 1, 'tags 推导出 Trusted → 应记一条等级变化');
+  assert.equal(tl[0].contentJson.trustLevel, 'Trusted User');
+  assert.ok(upserts.some((u) => u.trustLevel === 'Trusted User'));
+});
