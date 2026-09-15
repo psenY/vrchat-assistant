@@ -90,6 +90,11 @@ Object.assign(ctx.paths, { __dirname, PORT, HOST, COOKIE_FILE, CRED_FILE, DB_PAT
 // LOG_DIR/LOG_LEVEL/LOG_FORMAT 由 logger 自行从 env 解析，这里只在 main() 初始化后回填可读值
 // 见 main() 顶部 initLogger() 逻辑
 
+// 网页在线是否计入「在线好友数」（2026-09-15 用户要求开关；默认计入，0=只算游戏内）。
+// 只影响 friendState 计数（状态文案 {online} / MCP get_online_friends）；
+// 好友列表的「网页在线」分组展示不受影响。
+const ONLINE_INCLUDE_WEB = Number(process.env.VRC_MONITOR_ONLINE_INCLUDE_WEB) !== 0;
+
 // ── WebSocket 事件 → 好友状态更新 ──
 async function _updateFriendState(event) {
   const { friendState } = ctx;
@@ -112,7 +117,7 @@ async function _updateFriendState(event) {
       });
       break;
     case 'friend-active':
-      friendState.setOnline(event.userId);
+      if (ONLINE_INCLUDE_WEB || !isWebPresence(event.platform)) friendState.setOnline(event.userId);
       break;
   }
 }
@@ -144,7 +149,7 @@ async function _refreshOnlineState() {
       // UI 的 isWebOnline 也依赖 isOnline=true，若这里只算游戏内，状态文案数字与好友列表
       // 总数会分叉（用户报障：在线 N 人 vs 实际）。issue #114 排除的是**无位置的 active/
       // 菜单中用户**（location 为空、非 web），仍然排除 ✓
-      isOnline: !!(f.location && f.location !== 'offline') || isWebPresence(f.platform),
+      isOnline: !!(f.location && f.location !== 'offline') || (ONLINE_INCLUDE_WEB && isWebPresence(f.platform)),
     })));
     // 网页端在线自愈（2026-09-10 用户报 bug：转网页在线后 friends 表残留最后进房世界）。
     // REST 在线列表里 location='offline' 的条目=仅网页在线（VRChat 语义），把 platform/location
