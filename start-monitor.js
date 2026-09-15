@@ -877,6 +877,11 @@ setOpsLogSink((kind, level, message) => {
   // 7a. 好友头像补全：启动 90s 后首次 + 每 6 小时（低频，只补空头像）
   setTimeout(_syncFriendAvatars, 90 * 1000);
   setInterval(_syncFriendAvatars, 6 * 3600 * 1000);
+  // 在线对账周期化（2026-09-15 用户报障：状态文案在线数 vs 好友列表分叉）——
+  // _refreshOnlineState 原本只在 WS 连接后 setTimeout(25s) 跑一次：连接间隙错过的事件
+  // 会让 friendState（状态文案读数）与 friends.is_online（好友列表读数）各自漂移。
+  // 每 5 分钟从 API 对账一次，两边自然收敛（函数内部已有去重与失败放弃保护）。
+  setInterval(() => { _refreshOnlineState().catch(() => {}); }, 5 * 60 * 1000);
   // 好友列表周期刷新（2026-09-15 用户报障根治）：服务纯 WS 驱动、无好友列表拉取 →
   // trust_level 等资料字段陈旧无自愈。首轮启动 60s 后跑一次（部署后用户可立即看到等级
   // 刷新），之后每 VRC_MONITOR_FRIEND_REFRESH_HOURS（默认 6）小时一次；刷新时回写
