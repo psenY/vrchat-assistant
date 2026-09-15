@@ -92,8 +92,10 @@ export async function refreshFriendList(ctx, log) {
           ...(trust ? { trustLevel: trust } : {}),
         });
       }
-      if (page.length < PAGE) break;
-      offset += PAGE;
+      // 分页步进：实测该端点**忽略 n=100、每页固定返回 20 个**（页满才继续下一页；
+      // 曾用 `page.length < PAGE(100)` 作 break 条件 → 第一页 20 个就停了，漏掉后面好友）。
+      // 按实际返回数步进、空页才停：无论端点单页上限是多少都正确。
+      offset += page.length;
     }
     log(`[追踪] 好友列表刷新完成: ${total} 位, 等级变化 ${trustChanged} 条`);
   } catch (e) {
