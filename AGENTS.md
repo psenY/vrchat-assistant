@@ -93,6 +93,7 @@
 - `VRC_MONITOR_BACKUP_DIR`：自动备份目录（默认 `<仓库>/data/backups`）。
 - `VRC_MONITOR_LOG_DIR`：常驻服务脚本的日志 / 修复记录目录（默认 `<仓库>/service-logs`，仅 `service-windows/` 脚本使用；Linux systemd 方案日志走 journald，无需设置）。
 - `VRC_MONITOR_CAPTURE_LOG_MAX_SIZE`：Hermes 插件 stdout 捕获文件（`$HERMES_HOME/workspace/vrc-monitor/monitor.log`，node 子进程 stdout/stderr 合并写入）的轮转阈值字节（默认 `10485760`=10MB）。注意：与 `VRC_MONITOR_LOGGER_MAX_SIZE`（logger 模块结构化日志 `<VRC_MONITOR_DIR>/logs/monitor.log` 的轮转阈值）**不同名不同义**，勿混用。
+- `VRC_MONITOR_FRIEND_REFRESH_HOURS`：**好友列表周期刷新间隔**（默认 `6` 小时，最小 1）。服务纯 WS 驱动、无好友列表拉取——好友 `trust_level` 等资料字段只在 WS 事件到达时更新，陈旧后无自愈（2026-09-15 实测 XIAOFANG小芳已升 Trusted User、库内仍停 Known User）。本开关控制的周期任务拉取 `GET /auth/user/friends`（分页 n=100），**回写非空资料字段 + 记录 trust_level 变化事件**；**启动后 60 秒跑首轮**（部署后立即自愈存量陈旧等级）。失败仅 WARN 一行、限流走服务端。
 - `VRC_MONITOR_WORLD_CACHE_TTL_DAYS`：**世界缓存新鲜度阈值**（默认 `7` 天）。`world_cache` 里的世界名/描述/标签是抓取时的快照——世界作者改名后不会自动变（实测「Idle Merchant 掛機商人」从 V0.1.4 改到 V0.3.1，本服务停在旧名 11 天）。超过该阈值且该世界有在线好友时，`dashboard.friends` 会在**后台回源一次**刷新缓存（走 `dashboard.world`，限流 + 10s 超时、每请求最多 5 个世界、失败静默不影响响应）。**预热是异步的：本次请求仍返回旧名，下一次请求即为新名**。展示层（好友列表/游戏会话/同屏分析）统一**以可刷新的 `world_cache` 为准**；事件行里的 `world_name` 仅作最后兜底——注意它本身取自**当时的本地缓存**（不是独立快照），因此不比缓存更新。
 - `VRC_MONITOR_LOGGER_DIR`：应用日志模块（`core/logger.js`）日志文件目录（默认 `<VRC_MONITOR_DIR>/logs`）。注意：与上面 `VRC_MONITOR_LOG_DIR`（service 脚本用）不同名不同义，勿混用。
 - `VRC_MONITOR_LOGGER_LEVEL`：日志最低输出级别（默认 `info`，取值 `debug|info|warn|error|silent`）。
