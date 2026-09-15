@@ -14,13 +14,19 @@
  * 信任等级以 tags 推导优先（VRChat 官方展示语义：system_trust_* 层级
  * New < Known < Trusted < Veteran；列表/字段可能滞后，tags 是实时真值）。
  */
+// 现行信任等级（VRChat Wiki 官方，2026-09-15 核实）：Visitor → New User → User →
+// Known User → Trusted User（Trusted 最高）。Veteran/Legend 是**已移除的旧等级**
+// （system_trust_veteran/legend 为老玩家遗留徽章，VRChat 移除时各档上移一级），
+// 持有者按最高**现行**等级显示 = Trusted User（用户实测纠正：小芳 tags 含 trusted+veteran，
+// 游戏里只显示 Trusted，没有 Veteran 这个等级）。
 const TRUST_FROM_TAG = {
   system_trust_basic: 'New User',
   system_trust_known: 'Known User',
   system_trust_trusted: 'Trusted User',
-  system_trust_veteran: 'Veteran User',
+  system_trust_veteran: 'Trusted User',
+  system_trust_legend: 'Trusted User',
 };
-const TRUST_ORDER = ['New User', 'Known User', 'Trusted User', 'Veteran User'];
+const TRUST_ORDER = ['New User', 'User', 'Known User', 'Trusted User'];
 export function trustFromTags(tags) {
   if (!Array.isArray(tags)) return '';
   let best = '';

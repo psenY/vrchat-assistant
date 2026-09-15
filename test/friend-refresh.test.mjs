@@ -76,12 +76,12 @@ test('未变化：不产生事件', async () => {
   assert.equal(events.filter((e) => e.type === 'friend-update' && e.contentJson && e.contentJson.type === 'trust_level').length, 0);
 });
 
-test('tags 推导优先：字段滞后/缺失时以 system_trust_* 为准（小芳实测场景）', async () => {
+test('tags 推导优先：veteran 徽章 = 现行 Trusted User（VRChat 已移除 Veteran 等级）', async () => {
   const id = 'usr_xf';
   const { ctx, events, upserts } = makeCtx({
     friends: [{ user_id: id, display_name: 'XIAOFANG小芳', trust_level: 'Known User' }],
-    // trust_level 字段仍滞后报 Known User，但 tags 已含 trusted
-    users: new Map([[id, userObj(id, { trust: 'Known User', tags: ['system_trust_trusted'] })]]),
+    // trust_level 字段滞后报 Known User；tags 含 trusted + veteran（遗留徽章）→ 应显示 Trusted User
+    users: new Map([[id, userObj(id, { trust: 'Known User', tags: ['system_trust_trusted', 'system_trust_veteran'] })]]),
   });
   await refreshFriendList(ctx, () => {});
   const tl = events.filter((e) => e.type === 'friend-update' && e.contentJson && e.contentJson.type === 'trust_level');
