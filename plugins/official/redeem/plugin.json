@@ -1,0 +1,7 @@
+{
+  "name": "redeem",
+  "version": "1.0.0",
+  "description": "VRChat 兑换码与礼包领取：提交兑换码、列出待领取礼包、领取（打开）礼包、查询库存物品与本地历史；兑现「免费鸡蛋」全链路（redeem_code / get_redeemable_bundles / claim_bundle / get_inventory_items / get_redeem_history）",
+  "author": "AI Agent",
+  "depends": []
+}
