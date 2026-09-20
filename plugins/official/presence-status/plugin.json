@@ -1,0 +1,7 @@
+{
+  "name": "presence-status",
+  "version": "1.0.0",
+  "description": "按「自己是否在游戏内」自动切换自定义状态描述：在游戏内用一套文案、只在网页端在线（挂机）用另一套；get_presence_status / set_presence_status",
+  "author": "AI Agent",
+  "depends": []
+}

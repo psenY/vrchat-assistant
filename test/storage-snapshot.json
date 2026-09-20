@@ -617,20 +617,50 @@
       "end": "2026-08-01T11:59:59Z"
     },
     "windowMinutes": 30,
-    "matchCount": 0,
-    "totalSeconds": 0,
-    "totalMinutes": 0,
-    "worldDuration": [],
-    "worlds": [],
-    "matches": [],
+    "matchCount": 2,
+    "totalSeconds": 9000,
+    "totalMinutes": 150,
+    "worldDuration": [
+      {
+        "world": "World One",
+        "minutes": 150
+      }
+    ],
+    "worlds": [
+      "World One"
+    ],
+    "matches": [
+      {
+        "at": "2026-08-01T09:00:00Z",
+        "bt": "2026-08-01T09:10:00Z",
+        "world_id": "wrld_w1",
+        "instance_id": "inst_i1",
+        "world_name": "World One"
+      },
+      {
+        "at": "2026-08-01T11:30:00Z",
+        "bt": "2026-08-01T11:00:00Z",
+        "world_id": "wrld_w1",
+        "instance_id": "inst_i1",
+        "world_name": "World One"
+      }
+    ],
     "limit": null
   },
   "findFriendPairMeetings": {
     "userIdA": "usr_testA",
     "userIdB": "usr_testB",
-    "meetingCount": 0,
-    "totalDurationSeconds": 0,
-    "meetings": []
+    "meetingCount": 1,
+    "totalDurationSeconds": 9000,
+    "meetings": [
+      {
+        "worldId": "wrld_w1",
+        "instanceId": "inst_i1",
+        "startTime": "<<ISO:NOW>>",
+        "endTime": "<<ISO:NOW>>",
+        "durationMinutes": 150
+      }
+    ]
   },
   "getOnlinePattern": {
     "userId": "usr_testA",

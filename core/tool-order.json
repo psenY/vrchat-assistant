@@ -73,6 +73,8 @@
     "backup_database",
     "get_dynamic_status",
     "set_dynamic_status",
+    "get_presence_status",
+    "set_presence_status",
     "join_group",
     "leave_group",
     "peek_group_announcement",

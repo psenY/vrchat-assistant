@@ -10,6 +10,7 @@
  * 纯搬移重构：服务名、owner、实现逐字节一致，无行为变更。
  */
 import { isSafeModeEnabled } from './safe-mode.js';
+import { resolveSelfPresence } from './self-presence.js';
 
 // 世界缓存新鲜度（2026-09-15 新增，env 可配）：world_cache 里的名字/描述/标签是**快照**，
 // 世界作者改名后不会自动变（实测 Idle Merchant 掛機商人 V0.1.4 → V0.3.1 停了 11 天）。
@@ -215,31 +216,25 @@ export function registerDashboardServices(loader, ctx) {
   // null（无法判定——无 selfId/无 user-location 记录/异常）。
   // 护栏：WS 断链期间收不到 offline 推送，最近一条在线记录超过 1 小时无新事件时
   // 视为"可能仍在线"返回 null，由调用方保守推迟刷新（宁可晚刷不在可能在线时刷）。
+  // 判定实现统一在 core/self-presence.js（与 dashboard.selfPresence 共用，本服务只是三态→三值的薄映射）。
   loader.services.set('dashboard.isSelfOnline', () => {
     try {
-      const selfId = getSelfUserId(ctx.storage);
-      if (!selfId) return null;
-      const row = ctx.storage.query(
-        `SELECT content_json, created_at FROM events WHERE type='user-location' AND user_id = $self ORDER BY created_at DESC LIMIT 1`,
-        { $self: selfId }
-      )[0];
-      if (!row) return null;
-      let loc = '';
-      try { loc = (JSON.parse(row.content_json || '{}').location) || ''; } catch { return null; }
-      // 明确离线/空 → false；其余任何 location 都视为"可能在线"（VRChat 在线时 location 可能是
-      // private/friends/group/local/traveling/wrld_ 等，其中 private/friends/group/local 可为"无 worldId 独立值"，
-      // 见 parseLocInfo 实例段解析）。绝不把在线状态误判为离线去触发重挖。
-      if (loc === 'offline' || loc === 'offline:offline' || loc === '') return false;
-      // 可确认的在线形式 + 新鲜度护栏 → true；无法确认/陈旧 → null（调用方保守推迟刷新）
-      if (loc.startsWith('wrld_') || loc === 'traveling' || /^(private|friends|group|local)\b/.test(loc)) {
-        const at = Date.parse(row.created_at);
-        if (!Number.isFinite(at) || Date.now() - at > 60 * 60 * 1000) return null;
-        return true;
-      }
+      const presence = resolveSelfPresence(ctx.storage, { selfId: getSelfUserId(ctx.storage) });
+      if (presence.state === 'in_game') return true;
+      if (presence.state === 'not_in_game') return false;
       return null;
     } catch { return null; }
   });
   loader.serviceOwners.set('dashboard.isSelfOnline', 'core');
+
+  // 自己的在场状态三态（in_game / not_in_game / unknown），带位置、时间与新鲜度，
+  // 供插件区分"在游戏内"与"只在网页端在线"（服务常驻登录时自己的 location 恒为
+  // offline:offline）——例如 presence-status 插件据此切换自定义状态描述。
+  // 语义与不变量见 core/self-presence.js 头部说明。
+  loader.services.set('dashboard.selfPresence', () =>
+    resolveSelfPresence(ctx.storage, { selfId: getSelfUserId(ctx.storage) }));
+  loader.serviceOwners.set('dashboard.selfPresence', 'core');
+
 
   // 动态数据时间范围（最早/最新事件日期）：日历筛选的可选范围（VRCX 对齐）
   loader.services.set('dashboard.eventsRange', () => {

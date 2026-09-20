@@ -692,7 +692,7 @@ export const tools = [
   },
   {
     "name": "set_dynamic_status",
-    "description": "[manage] 设置动态状态：enabled 开关（默认关闭——开启后按在线好友数量自动更新自己的自定义状态 statusDescription）、template 文本模板（{online} 占位符替换为当前在线好友数,如 '在线 {online} 人',最长 64 字符）、syncNow 保存后是否立即强制同步一次（默认 true,绕过冷却）。注意：频繁变更状态文本受 VRChat 接口频率限制,引擎内置 65s 最小冷却间隔；status 种类（active/join me 等）保持不变,只更新自定义文本。",
+    "description": "[manage] 设置动态状态：enabled 开关（默认关闭——开启后按在线好友数量自动更新自己的自定义状态 statusDescription）、template 文本模板（{online} 占位符替换为当前在线好友数,如 '在线 {online} 人',最长 64 字符）、syncNow 保存后是否立即强制同步一次（默认 true,绕过冷却）。注意：频繁变更状态文本受 VRChat 接口频率限制,引擎内置 65s 最小冷却间隔；status 种类（active/join me 等）保持不变,只更新自定义文本。⚠️ 与插件工具 set_presence_status（按自己是否在游戏内自动切换状态文字）写同一个 statusDescription，两者互不知情：同时启用时挂机期间好友上下线会互相覆盖，建议只启用其一。",
     "inputSchema": {
       "type": "object",
       "properties": {

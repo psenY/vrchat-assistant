@@ -536,17 +536,17 @@ export const tools = [
   },
   {
     "name": "get_friend_pair_meeting",
-    "description": "[query] 查询两个好友（任意第三方）之间「每次见面」的时段与时长（单次见面分析）。按实例切分：同一实例内所有同屏匹配事件合并为一次见面，返回每次的 start/end/durationMinutes、世界与实例；同时给出 meetingCount（见面次数）与 totalDurationSeconds（总时长）。精确口径：B 的每条可识别实例事件匹配 A 同一实例且时间差 ≤ windowMinutes → 计同屏；排除 offline/traveling/private（private 无房主信息无法判定同房）。startTime/endTime 与 days 二选一，windowMinutes 默认 30。",
+    "description": "[query] 查询任意两个用户（含自己）之间「每次见面」的时段与时长（单次见面分析）；self-pair 时 userIdA/B 可填自己的 userId（服务端同时扫描 user-location 与 friend-location 两类事件，与 get_friend_pair_screen 共用匹配引擎）。按实例切分：同一实例内所有同屏匹配事件合并为一次见面，返回每次的 start/end/durationMinutes、世界与实例；同时给出 meetingCount（见面次数）与 totalDurationSeconds（总时长）。精确口径：B 的每条可识别实例事件匹配 A 同一实例且时间差 ≤ windowMinutes → 计同屏；排除 offline/traveling/private（private 无房主信息无法判定同房）。startTime/endTime 与 days 二选一，windowMinutes 默认 30。",
     "inputSchema": {
       "type": "object",
       "properties": {
         "userIdA": {
           "type": "string",
-          "description": "好友 A 的 userId（usr_...），必填"
+          "description": "用户 A 的 userId（usr_...），必填（可以是好友，也可以是自己，用于 self-pair）"
         },
         "userIdB": {
           "type": "string",
-          "description": "好友 B 的 userId（usr_...），必填"
+          "description": "用户 B 的 userId（usr_...），必填（可以是好友，也可以是自己，用于 self-pair）"
         },
         "startTime": {
           "type": "string",
@@ -574,17 +574,17 @@ export const tools = [
   },
   {
     "name": "get_friend_pair_screen",
-    "description": "[query] 查询两个好友（任意第三方）之间的同屏次数与时长（共玩/同房分析）。精确口径：对好友 B 的每条可识别实例事件，找好友 A 在同一实例且时间戳在 ±windowMinutes 内的匹配，计为一次同屏；排除 offline/traveling/private（private 无房主信息无法判定同房）。不同时间去过同一房间不计。返回 matchCount（次数）、totalMinutes/totalSeconds（总同屏时长，段首到段尾累加，含实例内中途断开空档）、worldDuration（按世界拆分时长）、worlds（共现世界）与 matches（匹配事件对，默认全量，可用 limit 限制条数——采样密集时 matches 可能上千条）。startTime/endTime 与 days 二选一，windowMinutes 默认 30。",
+    "description": "[query] 查询任意两个用户（含自己）之间的同屏次数与时长（共玩/同房分析）；self-pair 时 userIdA/B 可填自己的 userId（与 get_recent_cooplay 的 meId 一致；服务端会同时扫描 user-location 与 friend-location 两类事件）。精确口径：对好友 B 的每条可识别实例事件，找好友 A 在同一实例且时间戳在 ±windowMinutes 内的匹配，计为一次同屏；排除 offline/traveling/private（private 无房主信息无法判定同房）。不同时间去过同一房间不计。返回 matchCount（次数）、totalMinutes/totalSeconds（总同屏时长，段首到段尾累加，含实例内中途断开空档）、worldDuration（按世界拆分时长）、worlds（共现世界）与 matches（匹配事件对，默认全量，可用 limit 限制条数——采样密集时 matches 可能上千条）。startTime/endTime 与 days 二选一，windowMinutes 默认 30。",
     "inputSchema": {
       "type": "object",
       "properties": {
         "userIdA": {
           "type": "string",
-          "description": "好友 A 的 userId（usr_...），必填"
+          "description": "用户 A 的 userId（usr_...），必填（可以是好友，也可以是自己，用于 self-pair）"
         },
         "userIdB": {
           "type": "string",
-          "description": "好友 B 的 userId（usr_...），必填"
+          "description": "用户 B 的 userId（usr_...），必填（可以是好友，也可以是自己，用于 self-pair）"
         },
         "startTime": {
           "type": "string",

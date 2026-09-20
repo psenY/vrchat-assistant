@@ -222,7 +222,7 @@ export class SocialAnalytics {
   _collectPairScreen(userIdA, userIdB, startTime, endTime, windowMinutes = 30) {
     const getEvents = (uid) => this.storage.query(
       `SELECT created_at, json_extract(content_json, '$.location') AS loc FROM events
-       WHERE user_id = $u AND type = 'friend-location'
+       WHERE user_id = $u AND type IN ('friend-location', 'user-location')
        AND created_at >= $start AND created_at <= $end`,
       { $u: uid, $start: startTime, $end: endTime }
     );
