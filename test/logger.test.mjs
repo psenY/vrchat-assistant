@@ -42,6 +42,17 @@ test('脱敏：authToken/cookie/邮箱/password/授权码 全部替换且零泄�
   assert.equal(out.match(/\[REDACTED\]/g)?.length, 5, '应有 5 处 [REDACTED]');
 });
 
+test('脱敏：中文校验码（验证码/校验码/动态码）覆盖，且不吞正文', () => {
+  // 2026-09-21 补：授权码已覆盖，但「验证码」族此前从未命中（真实缺口）
+  const out = redactSecrets('验证码：778899 校验码=ABC123 动态码 123456');
+  assert.ok(!out.includes('778899'), '中文验证码值不得泄漏');
+  assert.ok(!out.includes('ABC123'), '校验码值不得泄漏');
+  assert.ok(out.includes('验证码：[REDACTED]'), '应保留「验证码：」前缀 + 脱敏值');
+  // 无分隔符的正文不得被误吞（要求显式 : = ：）
+  const prose = redactSecrets('请输入验证码 已发送到邮箱');
+  assert.ok(prose.includes('已发送'), '无分隔符时不得吞掉后续正文');
+});
+
 test('级别过滤：info 级别隐藏 debug，setLevel(debug) 后可见', () => {
   const d = path.join(dir, 'level');
   initLogger({ dir: d, format: 'text' });

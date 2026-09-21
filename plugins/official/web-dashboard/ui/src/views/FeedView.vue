@@ -615,7 +615,7 @@ onUnmounted(() => {
 
           <!-- 下线：对账补记的显示掉线窗口（非 WS 实时推送） -->
           <template v-else-if="typeOf(x) === 'offline' && x.reconcile">
-            <span v-if="x.offlineWindowStart" class="dim">API 掉线期间离线（{{ time(x.offlineWindowStart) }} ~ {{ time(x.reconcileDetectedAt) }}）</span>
+            <span v-if="x.offlineWindowStart" class="dim">{{ time(x.offlineWindowStart) }} 之后离线（{{ time(x.reconcileDetectedAt) }} 对账确认）</span>
             <span v-else class="dim">对账确认离线（{{ time(x.reconcileDetectedAt) }}）</span>
           </template>
 

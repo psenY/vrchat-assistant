@@ -257,6 +257,10 @@ export function redactSecrets(text) {
   // 中文键「授权码」：\b 对 CJK 无效，单独用宽松值兜底
   out = out.replace(/((?:授权码)\s*[:=:：]\s*)(\S+)/gi, '$1[REDACTED]');
 
+  // 中文校验码：验证码 / 校验码 / 动态码 + **显式分隔符** + 值
+  // （\b 对 CJK 无效，与上方「授权码」同族单独兜底；要求显式分隔符，避免吞掉正文里的下一个词）
+  out = out.replace(/((?:验证码|校验码|动态码)\s*[:=：]\s*)(\S+)/gi, '$1[REDACTED]');
+
   // 兜底：邮箱
   out = out.replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '[REDACTED]');
 

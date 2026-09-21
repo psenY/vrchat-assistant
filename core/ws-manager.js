@@ -263,8 +263,10 @@ export class WsManager {
   _onClose(code, reason) {
     this.disconnectedAt = new Date();
     const reasonStr = reason ? reason.toString() : '无';
-    log.info(`[警告] 断开: code=${code}, reason=${reasonStr}`);
-    recordOpsLog('ws', 'warn', 'WebSocket 断开 code=' + code + '（' + reasonStr + '），将自动重连');
+    // 字段名用 closeCode 而不是 code：裸 `code=` 会被 redactSecrets 当校验码脱敏（`code=[REDACTED]`），
+    // 排障时看不到断线原因；closeCode 不匹配任何敏感词，且仍是同一事实（2026-09-21）。
+    log.info(`[警告] 断开: closeCode=${code}, reason=${reasonStr}`);
+    recordOpsLog('ws', 'warn', 'WebSocket 断开 closeCode=' + code + '（' + reasonStr + '），将自动重连');
 
     this._clearTimers();
     this._setStatus('disconnected');

@@ -409,7 +409,7 @@ export function registerDashboardServices(loader, ctx) {
         summary: row.type === 'friend-location' ? '位置变化'
           : row.type === 'friend-update' ? ({ avatar: '更换模型', status: '状态变化', bio: '简介变化', user_icon: '更新头像图标', pronouns: '更新代词' }[content.type] || '资料变化')
           : row.type === 'friend-online' ? '上线'
-          : row.type === 'friend-offline' ? (content.reconcile ? '掉线期间离线' : '离线')
+          : row.type === 'friend-offline' ? (content.reconcile ? '对账补记离线' : '离线')
           : row.type === 'friend-active' ? (content.platform === 'web' ? '转网页端在线' : content.platform === 'nativemobile' ? '转App在线' : '状态变化')
           : row.type === 'notification' || row.type === 'notification-v2' ? (content.message || content.title || '通知')
           : row.type === 'notification-v2-update' || row.type === 'notification-update' ? (content.updates && content.updates.seen ? '通知已读' : '通知状态更新')
