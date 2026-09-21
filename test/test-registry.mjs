@@ -22,7 +22,7 @@ const REPO = path.join(__dirname, '..');
 const Database = require('better-sqlite3');
 const { ctx } = await import(pathToFileURL(path.join(REPO, 'core', 'server-context.js')).href);
 const { Storage } = await import(pathToFileURL(path.join(REPO, 'core', 'storage.js')).href);
-const { PluginLoader } = await import(pathToFileURL(path.join(REPO, 'core', 'plugin-loader.js')).href);
+const { PluginLoader, DESTRUCTIVE_TOOL_NAME_PREFIXES } = await import(pathToFileURL(path.join(REPO, 'core', 'plugin-loader.js')).href);
 const registry = await import(pathToFileURL(path.join(REPO, 'core', 'registry.js')).href);
 const { DESTRUCTIVE_TOOLS, isSafeModeEnabled } = await import(pathToFileURL(path.join(REPO, 'core', 'safe-mode.js')).href);
 const order = JSON.parse(readFileSync(path.join(REPO, 'core', 'tool-order.json'), 'utf-8')).tool_order;
@@ -100,14 +100,15 @@ if (safeMode) {
     "safe mode 应恰好剔除已注册的破坏性工具（" + destructiveRegistered.size + " 项）");
   assert(names.every(n => !destructiveRegistered.has(n)), 'safe mode 仍对外暴露了破坏性工具');
 
-  // 6.1 独立命名守卫：防「新增破坏性工具却漏进 DESTRUCTIVE_TOOLS」的二次漂移（issue #208 建议）。
-  // 注意：上面的期望数量与生产同源推导，天生测不出"清单漏项"，故这里用独立启发式兜底——
-  // 名字符合破坏性命名约定、却既不在清单也无 destructive 标志的，一律要求显式确认。
-  const DESTRUCTIVE_NAME_RE = /(^|_)(remove|unfavorite|leave|decline|clear|hide|move)(_|$)/;
-  const NAME_RE_EXCEPTIONS = []; // 名字像破坏性但按口径不算的，加这里必须写清理由
-  const suspects = order.filter(n => DESTRUCTIVE_NAME_RE.test(n) && !destructiveRegistered.has(n) && !NAME_RE_EXCEPTIONS.includes(n));
+  // 6.1 独立命名守卫：防「新增破坏性工具却漏进 DESTRUCTIVE_TOOLS」的二次漂移（issue #208），
+  // 也是核心工具唯一的前缀兜底（core/tools/* 不经 loader 的插件静态扫描）。
+  // 前缀表**同源复用** core/plugin-loader.js 的 DESTRUCTIVE_TOOL_NAME_PREFIXES（= docs/PLUGIN-API.md §7 契约），
+  // 不再自列动词表——#209 审查 ⚠️ 指出的正是「两份清单必然漂移」（曾漏 delete_ / unfriend_）。
+  const suspects = order.filter(n =>
+    DESTRUCTIVE_TOOL_NAME_PREFIXES.some(p => n.startsWith(p)) && !destructiveRegistered.has(n)
+  );
   assert(suspects.length === 0,
-    "以下工具名字像破坏性但既不在 DESTRUCTIVE_TOOLS 也无 destructive 标志，请确认口径并同步清单：" + suspects.join(', '));
+    "以下工具名匹配 §7 破坏性前缀但既不在 DESTRUCTIVE_TOOLS 也无 destructive 标志，请确认口径并同步清单：" + suspects.join(', '));
 
   // 6.2 纵深防御（tools/call）：破坏性必被拦 + 非破坏性必须放行（双向断言，防再次空转）
   let blockedMsg = '';
@@ -115,10 +116,15 @@ if (safeMode) {
   catch (err) { blockedMsg = err && err.message ? err.message : ''; }
   assert(blockedMsg.includes('安全模式已启用'), 'safe mode 应拦截破坏性工具 remove_print（tools/call 纵深防御）');
 
-  let nonBlocked = true;
-  try { await registry.dispatch('get_server_status', {}); }
-  catch (err) { nonBlocked = !(err && err.message ? err.message : '').includes('安全模式已启用'); }
-  assert(nonBlocked, 'safe mode 不得拦截非破坏性工具 get_server_status');
+  let nonBlockedResult = null;
+  let nonBlockedErr = '';
+  try { nonBlockedResult = await registry.dispatch('get_server_status', {}); }
+  catch (err) { nonBlockedErr = err && err.message ? err.message : String(err); }
+  // 收紧（#209 审查 💡）：不只是"没被安全模式拦"，而是必须真的 resolve 并返回对象——
+  // 否则"因其它原因抛错"也会被判过。
+  assert(nonBlockedErr === '', 'safe mode 下 get_server_status 不应抛错：' + nonBlockedErr);
+  assert(nonBlockedResult && typeof nonBlockedResult === 'object',
+    'safe mode 下 get_server_status 应正常 resolve 并返回对象');
 }
 
 if (pass) {

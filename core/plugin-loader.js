@@ -42,7 +42,7 @@ const FORBIDDEN_IMPORT_PATTERNS = [
 ];
 // 破坏性工具名前缀契约（docs/PLUGIN-API.md §7）：工具名匹配这些前缀的插件工具
 // 必须声明 destructive: true，否则拒绝加载（静态扫描校验）。
-const DESTRUCTIVE_TOOL_NAME_PREFIXES = [
+export const DESTRUCTIVE_TOOL_NAME_PREFIXES = [
   'remove_', 'delete_', 'leave_', 'decline_', 'hide_', 'unfavorite_', 'unfriend_',
 ];
 
