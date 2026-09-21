@@ -110,6 +110,26 @@ if (safeMode) {
   assert(suspects.length === 0,
     "以下工具名匹配 §7 破坏性前缀但既不在 DESTRUCTIVE_TOOLS 也无 destructive 标志，请确认口径并同步清单：" + suspects.join(', '));
 
+  // 6.1b 反向自检（#211 审查 ⚠️ 的闭合）：清单每一项必须"能被 §7 前缀识别"，否则必须**显式登记**在例外表里。
+  // 原因：#209 的旧自列正则能覆盖「中段命名」(x_remove_creator) 与 clear_/move_ 两个动词族，
+  // 换成 §7 前缀后这两类不再被识别 → 若清单里新增/保留这类项而不登记，守卫会静默——
+  // 本断言把「清单里有守卫不认识的动词」变成显式失败（两个方向都报警，不靠人记）。
+  const PREFIX_UNRECOGNIZED_EXCEPTIONS = [
+    // 不被 §7 前缀识别、但确属破坏性的清单项（改动本表必须写明理由）
+    'clear_favorite_group',   // clear_ 不在 §7 前缀；批量删除收藏（插件侧另有 destructive:true 声明）
+    'move_world_group',       // move_ 不在 §7 前缀；删旧建新非原子（同上）
+    'move_friend_group',      // 同上
+    'x_remove_creator',       // 中段命名 _remove_；移除追踪博主（**只靠本清单兜底**）
+  ];
+  const unrecognized = DESTRUCTIVE_TOOLS.filter(n =>
+    !DESTRUCTIVE_TOOL_NAME_PREFIXES.some(p => n.startsWith(p)) && !PREFIX_UNRECOGNIZED_EXCEPTIONS.includes(n)
+  );
+  assert(unrecognized.length === 0,
+    "以下清单项既不被 §7 前缀识别、也不在例外表，请确认口径（改 §7 或登记例外）：" + unrecognized.join(', '));
+  const staleExceptions = PREFIX_UNRECOGNIZED_EXCEPTIONS.filter(n => !DESTRUCTIVE_TOOLS.includes(n));
+  assert(staleExceptions.length === 0,
+    "例外表里的项已不在 DESTRUCTIVE_TOOLS，请同步移除：" + staleExceptions.join(', '));
+
   // 6.2 纵深防御（tools/call）：破坏性必被拦 + 非破坏性必须放行（双向断言，防再次空转）
   let blockedMsg = '';
   try { await registry.dispatch('remove_print', { printId: 'test' }); }
