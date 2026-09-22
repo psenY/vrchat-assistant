@@ -295,7 +295,7 @@ const feedRows = computed(() => {
 const FEED_TARGET = 50;
 function retryLoad() { load(); }   // 失败态的重试入口
 // 性能保护（无虚拟滚动）：移动端 DOM 行数上限收紧（中端机挂 400 个复杂行滚动掉帧），
-// 桌面 400。到上限后停补并隐藏"加载更多"，用户用筛选/日期缩小范围查看更早内容
+// 桌面 400。到上限后**只停止自动触底补拉**（静默保护 DOM）；手动"加载更多"按钮始终可用 ✓（2026-09-22 用户要求撤掉对用户可见的上限语义）
 const isMobileDev = () => (typeof window !== 'undefined' && window.innerWidth < 900);
 const feedHardCap = computed(() => (isMobileDev() ? 200 : 400));
 function hasFilter() {
@@ -712,17 +712,13 @@ onUnmounted(() => {
       </template>
 
       <div class="feed-more">
-        <!-- 用户 2026-09-22 报障「多翻几页后明明还能加载却提示已加载全部」：
-             硬上限（桌面 400 / 移动 200）到达时按钮消失、v-else-if 立刻落下"已加载全部"——
-             但 feedHasMore 仍为 true（服务端每页 50 条只要拿满就还有）⇒ 文案在撒谎。
-             修正为三态：未达上限=加载更多；达上限但仍有余量=继续加载（显式点击，保护客户端渲染）。 -->
-        <Button v-if="store.feedHasMore && store.feedEvents.length < feedHardCap" :label="store.feedLoadingMore ? '加载中…' : '加载更多'" text size="small" icon="pi pi-angle-down" @click="loadMoreFeed()" />
-        <Button v-else-if="store.feedHasMore" :label="store.feedLoadingMore ? '加载中…' : `继续加载（已显示 ${store.feedEvents.length} 条 · 达展示上限）`" text size="small" icon="pi pi-angle-down" severity="secondary" @click="loadMoreFeed()" />
-        <!-- 2026-09-22：失败必须给重试入口，且不得谎报「已加载全部」（用户实测 502 时正是被谎报） -->
-        <div v-else-if="store.feedMoreError" class="feed-more-err">
+        <!-- 用户 2026-09-22：「明明还可以加载，加载前他写的却是达展示上限，我觉得这个东西明明可以不设上限」⇒
+             撤掉对用户可见的"上限"语义：上限只作**自动触底**的静默保护，手动按钮永远可用。 -->
+        <div v-if="store.feedMoreError" class="feed-more-err">
           <span>加载更多失败：{{ store.feedMoreError }}</span>
           <Button label="重试" size="small" text icon="pi pi-refresh" @click="loadMoreFeed()" />
         </div>
+        <Button v-else-if="store.feedHasMore" :label="store.feedLoadingMore ? '加载中…' : '加载更多'" text size="small" icon="pi pi-angle-down" @click="loadMoreFeed()" />
         <span v-else-if="store.feedEvents.length" class="feed-end">— 已加载全部动态 —</span>
         <!-- 哨兵始终渲染（条件渲染会导致 onMounted 拿不到元素、observer 失效） -->
         <div id="feed-sentinel" class="feed-sentinel"></div>
