@@ -463,8 +463,10 @@ onUnmounted(() => {
             <!-- 用户 2026-09-22 定：位置行显示「状态 → 状态」——私人房之间切换就该是「私人房间 → 私人房间」；
                  左侧取**上一条真实位置**（后端已跳过 traveling/offline），非世界形态用中文名、且即使两边相同也显示箭头。 -->
             <template v-if="prevLabelOf(x) && (curIsWorld(x) ? prevLabelOf(x) !== x.worldName : true)">
-              <img v-if="x.previousWorldImageUrl && curIsWorld(x)" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
-              <span v-if="x.previousWorldId && curIsWorld(x)" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
+              <!-- 左侧样式按**左边自己是不是世界**判（用户 2026-09-22：从世界进私人房时左边不该变灰）——
+                   目的地是不是世界只影响右侧标签，与左侧的链接/缩略图无关。 -->
+              <img v-if="x.previousWorldImageUrl && x.previousWorldId" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
+              <span v-if="x.previousWorldId" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ prevLabelOf(x) }}</span>
               <span v-else class="dim">{{ prevLabelOf(x) }}</span>
               <span class="arr">→</span>
             </template>
