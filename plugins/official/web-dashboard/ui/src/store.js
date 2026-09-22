@@ -357,10 +357,7 @@ export async function load(quiet = false) {
       get('/api/dashboard/events-range'),
     ]);
     const val = (i) => (settled[i].status === 'fulfilled' ? settled[i].value : null);
-    const o = val(0);
-    const f = val(1);
-    const parsed = parseEvents(val(2));
-    const rng = val(3);
+    // 2026-09-22 修复致命作用域 bug：此处原为 const o/f/parsed/rng ✗ ⇒ 只作用于 else 块内部，    // 外层 let 永不赋值 ⇒ 走到回退路径时第 378 行 parsed.events 抛（Cannot read properties of undefined），    // 表现为整页加载失败（用户报「所有页面全黑」）✓。现改为给外层变量赋值 ✓，回退路径因此真正可用 ✓。    o = val(0);    f = val(1);    parsed = parseEvents(val(2));    rng = val(3);
     }
     if (rng && rng.min) store.eventsRange = { min: rng.min, max: rng.max || null };
     if (o) {
