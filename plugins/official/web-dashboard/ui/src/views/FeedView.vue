@@ -452,7 +452,10 @@ onUnmounted(() => {
               <span class="dim">传送中</span>
             </template>
             <template v-else>
-            <template v-if="x.previousWorldName && x.previousWorldName !== x.worldName">
+            <!-- 仅当**目的地是真世界**时才显示「从哪来 →」：私人房/好友房/传送中这些非世界形态，
+                 左侧挂着上一个世界名会造成误导（用户 2026-09-22：看起来像"他从 Blume 去了私人房"，
+                 而实际是"他进了私人房"）-->
+            <template v-if="x.previousWorldName && x.previousWorldName !== x.worldName && String(x.worldId || '').startsWith('wrld_')">
               <img v-if="x.previousWorldImageUrl" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
               <span v-if="x.previousWorldId" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
               <span v-else class="dim">{{ x.previousWorldName }}</span>
