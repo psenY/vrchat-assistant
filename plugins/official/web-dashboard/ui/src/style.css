@@ -424,6 +424,8 @@ button { font-family: inherit; }
 @media (max-width: 899px) {
   .header-right { gap: 2px; }
   .header-right .p-button { width: 34px; height: 34px; min-width: 34px; padding: 0; }
-  /* 「好友列表」图标与底部导航的「好友」重复 ⇒ 手机上隐藏，省 ~40px ✓ */
-  .header-right .p-button:has(.pi-users) { display: none; }
+  /* 2026-09-22 第二轮：用户要保留「好友列表」图标 ⇒ 不再隐藏，改为收小尺寸 + 让标题可缩 ✓ */
+  .header-right .p-button:has(.pi-users) { display: inline-flex; }
+  .header-left, .app-header > :first-child { min-width: 0; }
+  .app-header .brand, .app-header .app-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
