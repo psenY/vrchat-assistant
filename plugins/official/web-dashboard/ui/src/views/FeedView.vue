@@ -704,7 +704,12 @@ onUnmounted(() => {
       </template>
 
       <div class="feed-more">
+        <!-- 用户 2026-09-22 报障「多翻几页后明明还能加载却提示已加载全部」：
+             硬上限（桌面 400 / 移动 200）到达时按钮消失、v-else-if 立刻落下"已加载全部"——
+             但 feedHasMore 仍为 true（服务端每页 50 条只要拿满就还有）⇒ 文案在撒谎。
+             修正为三态：未达上限=加载更多；达上限但仍有余量=继续加载（显式点击，保护客户端渲染）。 -->
         <Button v-if="store.feedHasMore && store.feedEvents.length < feedHardCap" :label="store.feedLoadingMore ? '加载中…' : '加载更多'" text size="small" icon="pi pi-angle-down" @click="loadMoreFeed()" />
+        <Button v-else-if="store.feedHasMore" :label="store.feedLoadingMore ? '加载中…' : `继续加载（已显示 ${store.feedEvents.length} 条 · 达展示上限）`" text size="small" icon="pi pi-angle-down" severity="secondary" @click="loadMoreFeed()" />
         <span v-else-if="store.feedEvents.length" class="feed-end">— 已加载全部动态 —</span>
         <!-- 哨兵始终渲染（条件渲染会导致 onMounted 拿不到元素、observer 失效） -->
         <div id="feed-sentinel" class="feed-sentinel"></div>
