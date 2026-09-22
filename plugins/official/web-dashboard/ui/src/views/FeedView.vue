@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { store, setView, openUser, openWorld, openPreview, loadMoreFeed, copyText, openGroup, resetFeed } from '../store.js';
-import { time, date, locLabel, statusLabels, trustColor, instanceLabel, avatarLabel } from '../utils.js';
+import { time, date, locLabel, statusLabels, trustColor, instanceLabel, avatarLabel, specialLocationLabel } from '../utils.js';
 import { post } from '../api.js';
 import { toast } from '../toast.js';
 import { statusColor } from '../composables/useFriendGroups.js';
@@ -460,7 +460,7 @@ onUnmounted(() => {
             </template>
             <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
             <span v-if="x.worldName" class="world-link" @click="openWorld(x.worldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.worldId)">{{ x.worldName }}</span>
-            <span v-else-if="x.location" class="dim">{{ locLabel(x.location) || x.location }}</span>
+            <span v-else-if="x.location" class="dim">{{ specialLocationLabel(x.location) || locLabel(x.location) || x.location }}</span>
             <span v-if="x.instanceType || x.region || x.instanceId" class="inst mono">{{ instanceLabel(x.instanceType) }}{{ x.region ? ' · ' + x.region.toUpperCase() : '' }}{{ x.instanceId ? ' · ' + x.instanceId : '' }}</span>
             <span v-if="x.travelingToLocation" class="dim">传送中</span>
             </template>
@@ -639,7 +639,7 @@ onUnmounted(() => {
             <Button size="small" text icon="pi pi-filter" label="只看此世界" @click.stop="filterByWorld(x)" />
             <Button icon="pi pi-copy" text rounded :aria-label="'复制世界 ID'" @click="copyText(x.worldId)" /></div>
           <div v-if="x.location && !['offline', 'offline:offline', 'traveling'].includes(x.location)" class="ed-cell"><span>实例</span>
-            <b class="mono ed-id">{{ locLabel(x.location) || x.location }}</b>
+            <b class="mono ed-id">{{ specialLocationLabel(x.location) || locLabel(x.location) || x.location }}</b>
             <Button icon="pi pi-copy" text rounded :aria-label="'复制实例位置'" @click="copyText(x.location)" /></div>
           <div v-if="x.avatarName || x.avatarId" class="ed-cell"><span>模型</span>
             <b class="ed-ellip">{{ x.avatarName || '未知模型' }}</b>

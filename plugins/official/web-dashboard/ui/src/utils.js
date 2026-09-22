@@ -46,6 +46,13 @@ export function worldLabel(x) {
   return x.worldId || '未公开位置';
 }
 
+/** 特殊位置的中文名（不是"世界:实例"格式的那些值）：private→私人房间 / offline→离线 / traveling→传送中 / local→本地房间。
+ * 用途：位置行在拿不到世界名时的兜底标签（用户 2026-09-22 定：拿不到世界名就写"私人房间"）。 */
+export function specialLocationLabel(loc) {
+  const v = String(loc || '').toLowerCase();
+  return { private: '私人房间', offline: '离线', 'offline:offline': '网页在线', traveling: '传送中', local: '本地房间', friends: '好友房间', group: '群组房间' }[v] || '';
+}
+
 export function parseLoc(loc) {
   if (!loc) return null;
   // 特殊值：offline / offline:offline / traveling 表示离线/传送状态，不是"世界:实例"格式，
