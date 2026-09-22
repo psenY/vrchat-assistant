@@ -1,18 +1,30 @@
 @echo off
+rem ============================================================
+rem  vrc-monitor one-shot setup for Windows (service-windows)
+rem  Usage: setup-windows.cmd [path\to\python.exe]
+rem    - With no argument, python is looked up on PATH.
+rem  Creates:
+rem    1) Scheduled task "VrcMonWatchdog" (every 1 minute, silent,
+rem       restarts the service if it crashes)
+rem    2) Scheduled task "VrcMonLauncher" (at logon / onlogon).
+rem       If onlogon is denied, falls back to a VBS launcher in the
+rem       current user's Startup folder (equivalent behaviour).
+rem  Uninstall:
+rem    schtasks /delete /tn VrcMonWatchdog /f
+rem    schtasks /delete /tn VrcMonLauncher /f   (or delete Startup\VrcMon_Launcher.vbs)
+rem
+rem  NOTE (issue #212): this file is intentionally ASCII-only. cmd.exe
+rem  parses a batch file using the CONSOLE CODE PAGE (cp936 on Chinese
+rem  Windows), so a UTF-8 file containing non-ASCII text is mis-parsed
+rem  before any `chcp` inside it can take effect (setup -> etup, rem
+rem  lines executed as commands). Non-ASCII user-facing text is kept in
+rem  setup-windows.zh.txt and printed via `type` AFTER chcp 65001.
+rem ============================================================
 chcp 65001 >nul 2>&1
-rem ============================================================
-rem  vrc-monitor 常驻服务一键设置（Windows）
-rem  用法: setup-windows.cmd [python解释器路径]
-rem     - 不传参数时自动从 PATH 查找 python
-rem  创建:
-rem     1) VrcMonWatchdog 计划任务（每分钟检查，崩溃自动重启）
-rem     2) VrcMonLauncher 登录自启动（onlogon 计划任务；若权限不足
-rem        则回退写入当前用户 Startup 文件夹 VBS，等效）
-rem  卸载: schtasks /delete /tn VrcMonWatchdog /f
-rem        schtasks /delete /tn VrcMonLauncher /f  (或删除 Startup\VrcMon_Launcher.vbs)
-rem ============================================================
 setlocal
 cd /d "%~dp0"
+
+if exist "%~dp0setup-windows.zh.txt" type "%~dp0setup-windows.zh.txt"
 
 set "PYTHON=%~1"
 if "%PYTHON%"=="" (
@@ -21,7 +33,8 @@ if "%PYTHON%"=="" (
   )
 )
 if "%PYTHON%"=="" (
-  echo [ERROR] 找不到 python，请传入解释器路径: setup-windows.cmd C:\path\to\python.exe
+  echo [ERROR] python not found. Pass the interpreter path:
+  echo         setup-windows.cmd C:\path\to\python.exe
   exit /b 1
 )
 
@@ -36,27 +49,27 @@ if "%PYTHONW%"=="" (
 )
 if "%PYTHONW%"=="" set "PYTHONW=%PYTHON%"
 
-echo [1/3] 创建 VrcMonWatchdog 计划任务（每 1 分钟崩溃自愈，无窗口静默执行）...
+echo [1/3] Creating scheduled task VrcMonWatchdog (every 1 minute, silent, auto-restart)...
 schtasks /create /tn "VrcMonWatchdog" /tr "\"%PYTHONW%\" \"%CD%\vrcmon_watchdog.py\"" /sc minute /mo 1 /f
 
 set "STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 
-echo [2/3] 创建 VrcMonLauncher 登录自启动（onlogon）...
+echo [2/3] Creating scheduled task VrcMonLauncher (at logon)...
 schtasks /create /tn "VrcMonLauncher" /tr "\"%PYTHONW%\" \"%CD%\vrcmon_service_launcher.py\"" /sc onlogon /f
 if errorlevel 1 (
-  echo       onlogon 权限不足，回退到当前用户 Startup 文件夹...
+  echo       onlogon denied - falling back to the current user's Startup folder...
   (
     echo Set sh = CreateObject^("WScript.Shell"^)
     echo sh.Run """%PYTHONW%"" ""%CD%\vrcmon_service_launcher.py""", 0, False
   ) > "%STARTUP%\VrcMon_Launcher.vbs"
-  echo       已写入 "%STARTUP%\VrcMon_Launcher.vbs"
+  echo       wrote "%STARTUP%\VrcMon_Launcher.vbs"
 )
 
-echo [3/3] 启动服务（若未运行）...
+echo [3/3] Starting the service (if not running)...
 "%PYTHONW%" "%CD%\vrcmon_service_launcher.py"
 
 echo.
-echo 完成。可选：每日修复报告（每天 09:00，昨天有修复才输出）可接入任意调度器：
-echo   Hermes: cron no_agent 任务指向 vrcmon_daily_report.py（空输出 = 静默）
+echo Done. Optional: daily repair report (09:00, silent when nothing to report):
+echo   Hermes : cron no_agent task pointing to vrcmon_daily_report.py (empty output = silent)
 echo   Windows: schtasks /create /tn VrcMonDailyReport /tr "\"%PYTHONW%\" \"%CD%\vrcmon_daily_report.py\"" /sc daily /st 09:00 /f
 endlocal
