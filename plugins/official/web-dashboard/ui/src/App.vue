@@ -35,7 +35,7 @@ import GroupDialog from './components/GroupDialog.vue';
 import InstanceDialog from './components/InstanceDialog.vue';
 import AvatarDialog from './components/AvatarDialog.vue';
 import LoginView from './components/LoginView.vue';
-import { hasToken, clearToken, probeAuthRequired } from './api.js';
+import { hasToken, clearToken, probeAuthRequired, verifyToken, getToken } from './api.js';
 import { useConfirm } from 'primevue/useconfirm';
 import { bindConfirm } from './confirm.js';
 
@@ -95,15 +95,23 @@ onMounted(() => document.addEventListener('scroll', onAnyScroll, true));
 
 // ── 登录页控制 ──
 const loginView = ref(!hasToken());
-// 本地无 token 时先裸探测服务端是否真的要令牌（api.js probeAuthRequired）：
-// 未启用鉴权（单机默认）→ 直接进面板，不再逼用户输入一个从未配置过的令牌（issue #213）；
-// 探测失败（服务未启动 / 网络异常）保留登录门，由登录页给出连接错误提示。
-const authChecking = ref(loginView.value);
+// 统一先进入检查中：**带旧令牌时不得直接挂主界面**——否则主界面会立刻把全部数据请求并发打出去、
+// 全部 401 之后才跳回登录页（用户 2026-09-22 报障：没登录为什么也发请求 + 首屏非常慢）。
+// 现在改为：有 token 先 verifyToken 验一次（成功才挂主界面、失败清 token 回登录页）；无 token 才裸探测（issue #213）。
+const authChecking = ref(true);
 onMounted(async () => {
-  if (!loginView.value) return;
   try {
-    if (!(await probeAuthRequired())) loginView.value = false;
-  } catch { /* 保留登录门 */ } finally {
+    if (!hasToken()) {
+      loginView.value = await probeAuthRequired();
+    } else if (await verifyToken(getToken())) {
+      loginView.value = false;
+    } else {
+      clearToken();
+      loginView.value = true;
+    }
+  } catch {
+    loginView.value = true;
+  } finally {
     authChecking.value = false;
   }
 });
