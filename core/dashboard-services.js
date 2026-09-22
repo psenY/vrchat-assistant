@@ -464,10 +464,11 @@ export function registerDashboardServices(loader, ctx) {
         previousAvatarName: content.previousAvatarName || '',
         // avatarId 富化：WS 推送不含 currentAvatar，从 planet_cache 的 imageUrl→avatarId 映射反查（_syncFriendAvatars 建立）
         avatarId: content.avatarId || user.currentAvatar || (() => {
-          const fm = String(content.avatarImageUrl || '').match(/\/file\/(file_[a-f0-9-]+)/);
-          if (!fm) return '';
+          // 2026-09-22 issue #225：收敛到 avatarFileId()（同时认 /file/ 与 /image/ 两种形态 ✓；此前内联正则漏 image ✗）
+          const fid = avatarFileId(content.avatarImageUrl || '');
+          if (!fid) return '';
           try {
-            const avr = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key = $k`, { $k: `avimg:${fm[1]}` });
+            const avr = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key = $k`, { $k: `avimg:${fid}` });
             if (avr[0]) { const v = JSON.parse(avr[0].payload); if (v && v.avatarId) return v.avatarId; }
           } catch { /* ignore */ }
           return '';
@@ -1402,12 +1403,13 @@ export function registerDashboardServices(loader, ctx) {
     // 模型名（currentAvatarImageUrl → file id → planet_cache avatar_name）
     let avatarName = '';
     try {
-      const fm = String(user && (user.currentAvatarImageUrl || user.currentAvatarThumbnailImageUrl) || '').match(/\/file\/(file_[a-f0-9-]+)/);
+      // 2026-09-22 issue #225：此处兜底取的正是 currentAvatarThumbnailImageUrl（image 形态 ✗）⇒ 好友详情页模型名一直为空 ✓；收敛到 avatarFileId() ✓
+      const fid = avatarFileId(user && (user.currentAvatarImageUrl || user.currentAvatarThumbnailImageUrl) || '');
       if (fm) {
         const anCache = loader._avatarNameCache || (loader._avatarNameCache = new Map());
-        if (anCache.has(fm[1])) avatarName = anCache.get(fm[1]);
+        if (fid && anCache.has(fid)) avatarName = anCache.get(fid);
         else {
-          const ar = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key=$k`, { $k: `avatar_name:${fm[1]}` })[0];
+          const ar = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key=$k`, { $k: `avatar_name:${fid}` })[0];
           if (ar) { try { const v = JSON.parse(ar.payload); if (v && v.name) avatarName = v.name; } catch { /* ignore */ } }
         }
       }

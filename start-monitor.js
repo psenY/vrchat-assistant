@@ -356,7 +356,10 @@ async function _refreshTrackedNonFriends() {
       const dn = userObj.displayName || u.display_name || '';
       // 头像变化检测：按 file id 归一化比较（防 currentAvatarImageUrl vs Thumbnail 兜底链或 URL 版本号 /1/ vs /3/ 波动误报）
       const prevAv = u.avatar_image_url || '';
-      const fileIdOf = (url) => { const m = String(url || '').match(/\/file\/(file_[a-f0-9-]+)/); return m ? m[1] : ''; };
+      // 2026-09-22 issue #225（评审提级 ⚠️）：本函数是**变更检测归一化** —— 旧正则对 image 形态两侧都返回 '' ✗
+      // ⇒ changed 退化成原始字符串比较 ⇒ 仅版本号抖动（/1/256 → /3/256）就被误判为「换了模型」，产生**假 avatar 事件** ✓。
+      // 收敛到 avatarFileId() 后两侧都归一为 file_xxx ⇒ changed 正确 ✓（它返回 null，用 ?? '' 适配本函数约定 ✓）。
+      const fileIdOf = (url) => avatarFileId(url) ?? '';
       const changed = fileIdOf(av) && fileIdOf(prevAv) ? fileIdOf(av) !== fileIdOf(prevAv) : (av !== prevAv);
       if (av && prevAv && changed) {
         try {
