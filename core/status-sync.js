@@ -70,15 +70,15 @@ export class DynamicStatusSync {
   render(text, online, counts = null) {
     // 2026-09-22 用户要求：在线数拆成三个可分别引用（自己组合文案）——
     //   {online} 沿用 VRC_MONITOR_ONLINE_INCLUDE_WEB 口径（语义不变）；
-    //   {total}/{总在线}=游戏内+网页、{webOnline}/{web在线}=网页/App、{gameOnline}/{非web在线}=游戏内。
+    //   {total}=游戏内+网页、{webOnline}=网页/App、{gameOnline}=游戏内（只留英文 ✓）。
     const c = counts || {};
     const total = Number.isFinite(c.total) ? c.total : online;
     const web = Number.isFinite(c.web) ? c.web : 0;
     const game = Number.isFinite(c.game) ? c.game : total;
     let rendered = String(text);
-    for (const [k, v] of [['{online}', online], ['{total}', total], ['{总在线}', total],
-      ['{webOnline}', web], ['{web在线}', web], ['{Web在线}', web],
-      ['{gameOnline}', game], ['{非web在线}', game], ['{非Web在线}', game]]) {
+    // 用户 2026-09-22：占位符**只留英文**（中文别名去掉）
+    for (const [k, v] of [['{online}', online], ['{total}', total],
+      ['{webOnline}', web], ['{gameOnline}', game]]) {
       rendered = rendered.replaceAll(k, String(v));
     }
     const chars = Array.from(rendered);

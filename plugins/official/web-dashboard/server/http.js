@@ -1,4 +1,12 @@
 import { gzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
+
+/** 内容 ETag（sha1 前 16 位）——用户 2026-09-22 反馈「无痕打开登录页也要 15 秒」：
+ *  页面 1.5MB（gzip 后 ~480KB）且只有 no-cache、无 ETag ⇒ 每次打开都整包重下 ✗；
+ *  加 ETag 后浏览器可带 If-None-Match 复验，未变更直接 304 = 零正文 ✓✓。 */
+function etagOf(body) {
+  return '"' + createHash('sha1').update(body).digest('hex').slice(0, 16) + '"';
+}
 
 // 客户端接受 gzip 且 body 足够大时压缩——动态流 JSON ~80KB→~12KB，单文件页面 1.27MB→~300KB（家宽上行显著提速）
 function acceptsGzip(res) {
@@ -28,11 +36,18 @@ export function sendJson(res, payload, status = 200) {
 
 export function sendHtml(res, html) {
   const body = Buffer.from(html);
+  const tag = etagOf(body);
+  const inm = String((res.req && res.req.headers && res.req.headers['if-none-match']) || '');
+  if (inm.split(',').map((s) => s.trim()).includes(tag)) {
+    res.writeHead(304, { ETag: tag, 'Cache-Control': 'no-cache' });
+    return res.end();
+  }
   if (acceptsGzip(res) && body.length > 1024) {
     const gz = gzipSync(body);
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-cache',
+      'ETag': tag,
       'Content-Encoding': 'gzip',
       'Content-Length': gz.length,
     });
@@ -41,6 +56,7 @@ export function sendHtml(res, html) {
   res.writeHead(200, {
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-cache',
+    'ETag': tag,
     'Content-Length': body.length,
   });
   res.end(body);

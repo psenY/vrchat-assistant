@@ -13,13 +13,11 @@ function makeSync() {
   return new DynamicStatusSync(ctx, () => {});
 }
 
-test('三计数占位符各自替换（含中文别名）', () => {
+test('三计数占位符各自替换（只留英文，用户 2026-09-22 定）', () => {
   const s = makeSync();
   const counts = { total: 7, web: 2, game: 5 };
   assert.equal(s.render('总{online}人', 3, counts), '总3人', '{online} 沿用开关口径');
   assert.equal(s.render('总{total}/Web{webOnline}/游戏{gameOnline}', 3, counts), '总7/Web2/游戏5');
-  assert.equal(s.render('{总在线}|{web在线}|{非web在线}', 3, counts), '7|2|5');
-  assert.equal(s.render('{Web在线}-{非Web在线}', 3, counts), '2-5');
 });
 
 test('没有 counts 时回退：total=online、web=0、game=total', () => {
