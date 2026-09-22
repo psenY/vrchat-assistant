@@ -53,9 +53,34 @@ export class DynamicStatusSync {
     return next;
   }
 
+  /** 从 friends 表算三个计数（游戏内 / 网页 / 总）；失败返回 null，调用方回退到单值 ✓ */
+  _counts() {
+    try {
+      const r = this.ctx.storage.query(
+        "SELECT SUM(CASE WHEN is_online = 1 THEN 1 ELSE 0 END) AS total," +
+        " SUM(CASE WHEN is_online = 1 AND platform = 'web' THEN 1 ELSE 0 END) AS web," +
+        " SUM(CASE WHEN is_online = 1 AND (platform IS NULL OR platform <> 'web') THEN 1 ELSE 0 END) AS game" +
+        " FROM friends")[0];
+      if (!r) return null;
+      return { total: Number(r.total) || 0, web: Number(r.web) || 0, game: Number(r.game) || 0 };
+    } catch { return null; }
+  }
+
   /** 渲染模板：{online} → 当前在线好友数；截断按 Unicode 码点（review #166 💡：UTF-16 slice 会把 emoji 切半成替换符） */
-  render(text, online) {
-    const rendered = String(text).replaceAll('{online}', String(online));
+  render(text, online, counts = null) {
+    // 2026-09-22 用户要求：在线数拆成三个可分别引用（自己组合文案）——
+    //   {online} 沿用 VRC_MONITOR_ONLINE_INCLUDE_WEB 口径（语义不变）；
+    //   {total}/{总在线}=游戏内+网页、{webOnline}/{web在线}=网页/App、{gameOnline}/{非web在线}=游戏内。
+    const c = counts || {};
+    const total = Number.isFinite(c.total) ? c.total : online;
+    const web = Number.isFinite(c.web) ? c.web : 0;
+    const game = Number.isFinite(c.game) ? c.game : total;
+    let rendered = String(text);
+    for (const [k, v] of [['{online}', online], ['{total}', total], ['{总在线}', total],
+      ['{webOnline}', web], ['{web在线}', web], ['{Web在线}', web],
+      ['{gameOnline}', game], ['{非web在线}', game], ['{非Web在线}', game]]) {
+      rendered = rendered.replaceAll(k, String(v));
+    }
     const chars = Array.from(rendered);
     return chars.length <= MAX_DESC_LEN ? rendered : chars.slice(0, MAX_DESC_LEN).join('');
   }
@@ -72,7 +97,8 @@ export class DynamicStatusSync {
     const online = this.ctx.friendState ? this.ctx.friendState.getOnlineCount() : null;
     if (online == null) return { action: 'skipped', reason: 'no-friend-state' };
 
-    const text = this.render(cfg.template, online);
+    const counts = this._counts();   // {total, web, game}；查库失败则回退到 online 单值 ✓
+    const text = this.render(cfg.template, online, counts);
 
     // 冷却闸前置（review #166 🟡）：冷却窗口内的事件不再各发一次 GET /auth/user，
     // 避免高峰时段事件密集时瞬时多请求触发 429；unchanged 比对改用上次发送缓存。

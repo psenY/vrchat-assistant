@@ -31,7 +31,7 @@ async function save() {
   if (saving.value) return;
   const tpl = template.value.trim();
   if (tpl.includes('{online}') === false && tpl.length > 0) {
-    toast('模板建议包含 {online} 占位符（会替换为当前在线好友数）', 'warn');
+    toast('模板建议包含占位符：{online}/{total}/{webOnline}/{gameOnline}（会替换为对应计数）', 'warn');
   }
   saving.value = true;
   try {
@@ -80,7 +80,7 @@ onMounted(load);
           <label class="set-label" for="ds-template">状态文本模板</label>
           <input id="ds-template" v-model="template" class="set-input" maxlength="64"
             placeholder="在线 {online} 人" aria-label="状态文本模板" />
-          <small class="set-hint">{online} 会替换为当前在线好友数；最长 64 字符。频繁变更受 VRChat 接口限频，引擎内置 65 秒冷却且文本无变化不提交。</small>
+          <small class="set-hint">可用占位符：{online}（按开关口径的在线数）、{total}/{总在线}（总在线）、{webOnline}/{web在线}（网页/App 在线）、{gameOnline}/{非web在线}（游戏内在线）；最长 64 字符。频繁变更受 VRChat 接口限频，引擎内置 65 秒冷却且文本无变化不提交。</small>
         </div>
         <div class="set-row set-meta">
           <span>当前在线好友：<b>{{ onlineNow ?? '—' }}</b></span>
