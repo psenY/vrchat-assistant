@@ -14,6 +14,7 @@ import { refreshFriendList } from './core/friend-refresh.js';
 
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
 import { isWebPresence } from './core/event-pipeline.js';
+import { avatarFileId } from './core/img-util.js';
 import { pickOfflineWindowStart } from './core/offline-window.js';
 import { initLogger, getLevelName, getLogger } from './core/logger.js';
 import { recordOpsLog, setOpsLogSink } from './core/ops-log.js';
@@ -259,9 +260,13 @@ async function _syncFriendAvatars() {
       for (const f of r.data) {
         // 模型 ID ↔ 图片映射：VRChat WS 推送的 friend-update 不含 currentAvatar（只有图片 URL），
         // 这里用全量好友列表建 imageUrl→avatarId 映射，供 events 服务富化模型变动事件的 avtr ID
-        const fm = String(f.currentAvatarImageUrl || '').match(/\/file\/(file_[a-f0-9-]+)/);
-        if (fm && f.currentAvatar) {
-          try { storage.setPlanetCache(`avimg:${fm[1]}`, { avatarId: f.currentAvatar, at: Date.now() }); } catch { /* 落盘失败忽略 */ }
+        // 用共享的 avatarFileId（支持 /file/ 与 /image/ 两种形态 + 解代理 URL）；
+        // 旧内联正则只认 /file/，image 形态永远建不了映射（生产实测 avimg: 条目数 0）。
+        const fid = avatarFileId(f.currentAvatarImageUrl || '');
+        // 2026-09-22 探针实证：好友列表**不再返回 `currentAvatar`**（只有 currentAvatarImageUrl），
+        // 故此处改为记录 fileId→（无 id 时的）占位，保留原逻辑以便上游恢复该字段后自动生效。
+        if (fid && f.currentAvatar) {
+          try { storage.setPlanetCache(`avimg:${fid}`, { avatarId: f.currentAvatar, at: Date.now() }); } catch { /* 落盘失败忽略 */ }
         }
         // VRChat API User 对象：头像字段 currentAvatarImageUrl/currentAvatarThumbnailImageUrl/userIcon，信任等级 trustLevel
         const av = f.currentAvatarImageUrl || f.currentAvatarThumbnailImageUrl || '';

@@ -565,7 +565,17 @@ export function registerDashboardServices(loader, ctx) {
       (async () => {
         for (const { ev, fileId, key } of pending) {
           try {
-            const a = await ctx.rateLimiter.execute(() => ctx.api._request('GET', `/file/${fileId}`));
+            // 2026-09-22：`GET /file/{id}` 对非自有文件**一律 404**（生产日志实证）⇒ 改为
+            // 走 `avimg:<fileId>` 映射拿 avatarId，再调**公开**的 `GET /avatars/{avatarId}` 取 name
+            // （上游 VRCX src/api/avatar.js 同款用法）。映射由 start-monitor 的全量好友列表建立。
+            let avatarId = '';
+            try {
+              const row = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key = $k`, { $k: `avimg:${fileId}` })[0];
+              if (row) { const v = JSON.parse(row.payload || '{}'); avatarId = v.avatarId || ''; }
+            } catch { /* 读缓存失败按无映射处理 */ }
+            const a = avatarId
+              ? await ctx.rateLimiter.execute(() => ctx.api._request('GET', `/avatars/${encodeURIComponent(avatarId)}`))
+              : null;
             const nm = parseAvName(a && a.data && a.data.name);
             if (nm) { ev[key] = nm; saveAvName(fileId, nm); }
           } catch { /* 查询失败保留空名，下次再试 */ }
