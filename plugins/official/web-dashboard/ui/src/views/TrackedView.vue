@@ -518,4 +518,15 @@ onMounted(load);
 /* 5) 卡片：与其它列表一致的分隔与悬停反馈 */
 .tc-card { border: 1px solid var(--border-soft); border-radius: var(--radius); }
 .tc-card:hover { border-color: var(--border); }
+
+/* ── tk-grid-2026-09-22（用户：「PC 端你不觉得一条太长了吗？」）────────────────
+   宽屏改为多列卡片网格：一屏 2 列（≥1200px）/ 3 列（≥1700px），窄屏保持 1 列。
+   展开的详情用 :has() 自动占满整行（Chromium 支持 ✓），避免详情被挤在 570px 里。*/
+@media (min-width: 1200px) {
+  .tk-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
+}
+@media (min-width: 1700px) {
+  .tk-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.tk-item:has(.tk-row.open) { grid-column: 1 / -1; }
 </style>
