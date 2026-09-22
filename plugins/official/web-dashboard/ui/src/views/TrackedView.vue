@@ -388,14 +388,7 @@ onMounted(load);
       </div>
     </div>
 
-    <Dialog v-model:visible="memoDialog" modal :header="'备注：' + (memoTarget ? memoTarget.displayName : '')" :style="{ width: '420px', maxWidth: '92vw' }">
-      <Textarea v-model="memoDraft" rows="4" maxlength="200" autoResize class="w-full" placeholder="给这个非好友写点备注（≤200 字符，仅自己可见）" @keydown.enter.exact.prevent="saveMemo" />
-      <small class="tk-memohint">{{ memoDraft.length }}/200</small>
-      <template #footer>
-        <Button size="small" text label="取消" @click="memoDialog = false" />
-        <Button size="small" :label="memoOf({ memo: memoDraft }) ? '保存' : '清除备注'" icon="pi pi-check" :loading="memoSaving" @click="saveMemo" />
-      </template>
-    </Dialog>
+
 </template>
 
 <style scoped>
