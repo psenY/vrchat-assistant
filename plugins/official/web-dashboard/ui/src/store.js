@@ -275,6 +275,46 @@ function syncRightGroups() {
   store.offlineFriends = store.friends.filter((f) => !f.isOnline);
   store.favFriends = store.friends.filter((f) => store.favFriendIds && store.favFriendIds.has(f.userId));
 }
+// ── 本地缓存（2026-09-22 用户要「无感」优化：首屏先用缓存渲染、再后台刷新）──
+// 约束：①只在首屏 hydrate，不改变任何接口语义 ②token 失效应清空 ③TTL 5 分钟，过期仍可用（stale-while-revalidate）
+const CACHE_KEY = 'vrc.dash.cache';
+const CACHE_TTL_MS = 5 * 60_000;
+function readCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o || typeof o !== 'object') return null;
+    return o;
+  } catch { return null; }
+}
+function writeCache(patch) {
+  try {
+    const cur = readCache() || {};
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ ...cur, ...patch, at: Date.now() }));
+  } catch { /* 隐私模式/配额满：静默跳过，不影响功能 */ }
+}
+export function clearDashCache() { try { localStorage.removeItem(CACHE_KEY); } catch {} }
+function cacheFresh(o) { return !!o && (Date.now() - (o.at || 0)) < CACHE_TTL_MS; }
+
+// 模块加载即 hydrate：早于 app mount ⇒ 首屏直接用上次数据填满（随后 load() 静默刷新）✓
+hydrateFromCache();
+// token 失效时清空缓存（避免把上个会话的数据显示给未登录/换号的用户）✓
+try { window.addEventListener('vrc-auth-401', () => clearDashCache()); } catch { /* SSR/测试环境无 window */ }
+
+// 首屏 hydrate：用上次的数据先把界面填满（好友/动态/概览），随后 load() 会静默刷新 ✓
+export function hydrateFromCache() {
+  const c = readCache();
+  if (!c) return false;
+  let hit = false;
+  if (Array.isArray(c.friends) && c.friends.length && !store.friends.length) { store.friends = c.friends; syncRightGroups(); hit = true; }
+  if (Array.isArray(c.feedEvents) && c.feedEvents.length && !store.feedEvents.length) { store.feedEvents = c.feedEvents; store.feedTotal = c.feedTotal || c.feedEvents.length; hit = true; }
+  if (c.overview && !store.overview) { store.overview = c.overview; hit = true; }
+  if (c.eventsRange && c.eventsRange.min) { store.eventsRange = c.eventsRange; hit = true; }
+  if (hit) console.info('[dashboard] 首屏使用本地缓存渲染（' + (cacheFresh(c) ? '新鲜' : '已过期') + '），随后静默刷新');
+  return hit;
+}
+
 
 // 关键路径（本地 DB，秒回）+ 慢路径（VRChat API，后台填）
 // 已有数据时静默刷新：不再置 feedLoading（避免标题行"同步中…"Tag 闪烁），保持旧列表原地更新
@@ -323,6 +363,13 @@ export async function load(quiet = false) {
     }
     store.feedHasMore = parsed.events.length >= 50;
     syncRightGroups();
+    writeCache({
+      friends: store.friends,
+      feedEvents: store.feedEvents.slice(0, 50),
+      feedTotal: store.feedTotal,
+      overview: store.overview,
+      eventsRange: store.eventsRange,
+    });
 
     Promise.allSettled([
       get('/api/dashboard/favorites?type=friends'),
