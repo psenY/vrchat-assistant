@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useToast } from 'primevue/usetoast';
-import { store, setView, load, enableNotifications, disableNotifications } from './store.js';
+import { store, setView, load, startDashboard, enableNotifications, disableNotifications } from './store.js';
 import { onErrorCaptured } from 'vue';
 
 // 2026-09-22 用户报障「请求正常但右边整块黑的」：全项目此前**没有任何渲染错误兜底** ✗ ⇒ 子组件报错会让那一块静默变黑 ✓。
@@ -120,6 +120,7 @@ onMounted(async () => {
       loginView.value = await probeAuthRequired();
     } else if (await verifyToken(getToken())) {
       loginView.value = false;
+      startDashboard();   // 2026-09-22：登录后才拉数据（登录页此前会打全部接口 ✗）
     } else {
       clearToken();
       loginView.value = true;

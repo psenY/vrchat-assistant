@@ -732,17 +732,23 @@ function initKeyboard() {
 
 export function startDashboard() {
   initFromHash();
-  load();
-  loadWatchlist();
-  loadTracked();
-  loadNotifCount();
-  loadAnnNewFlag();
+  // 2026-09-22 用户截图实证：登录页（无令牌）也在打 bootstrap/watchlist/tracked/count/公告 等全部接口 ✗
+  // ⇒ 无令牌时只做纯本地初始化（hash/SSE/键盘/视口），不发任何 dashboard 请求、不起轮询 ✓。
+  // 登录成功后由 App 在挂载完成时调用本函数（见 App.vue 的挂载逻辑），行为与之前一致 ✓。
+  const authed = (() => { try { return !!getToken(); } catch { return false; } })();
+  if (authed) {
+    load();
+    loadWatchlist();
+    loadTracked();
+    loadNotifCount();
+    loadAnnNewFlag();
+  }
   try { store.notifyEnabled = localStorage.getItem('vrc_notify') === '1'; } catch { /* 隐私模式 */ }
   startSse();
   trackViewport();
   initKeyboard();
   bindHashChange();
-  setInterval(() => load(true), 120000);  // 全量校准：120s 一次（SSE 增量主导，全量只防丢帧/断线自愈）
+  if (authed) setInterval(() => load(true), 120000);   // 未登录不轮询 ✓  // 全量校准：120s 一次（SSE 增量主导，全量只防丢帧/断线自愈）
   // 右侧栏"我自己"状态/位置：由 SSE user-update/user-location 事件直接更新 me + refreshMeFresh() 节流拉取，
   // 不再需要 10s 定时全量拉 /me（已移除，2026-09-01 SSE 增量改造）
 }
