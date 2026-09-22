@@ -24,10 +24,12 @@ function userObj(id, { trust, tags, name } = {}) {
 function makeCtx({ friends, users, failIds = new Set() }) {
   const events = [];
   const upserts = [];
+  const cache = new Map();
   const storage = {
     query: () => friends,
     upsertFriend(f) { upserts.push(f); },
     insertEvent(e) { events.push(e); },
+    setPlanetCache(k, v) { cache.set(k, v); },   // 模型名缓存（2026-09-22 新增断言用）
   };
   const api = { _request: async (m, url) => {
     const id = decodeURIComponent(url.split('/').pop());
@@ -37,7 +39,7 @@ function makeCtx({ friends, users, failIds = new Set() }) {
   } };
   const rateLimiter = { execute: async (fn) => fn() };
   const logs = [];
-  return { ctx: { api, rateLimiter, storage }, events, upserts, logs: (m) => logs.push(m), logsArr: logs };
+  return { ctx: { api, rateLimiter, storage }, events, upserts, cache, logs: (m) => logs.push(m), logsArr: logs };
 }
 
 test('等级变化：逐好友 /users/{id} → 事件 + 回写基线（Known → Trusted）', async () => {

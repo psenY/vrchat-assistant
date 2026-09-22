@@ -42,7 +42,7 @@ function worldCacheStale(updatedAt) {
   if (Number.isNaN(t)) return true;
   return Date.now() - t >= WORLD_CACHE_TTL_MS;
 }
-import { imgProxy, avatarThumb, avatarOf, avatarFileId } from './img-util.js';
+import { imgProxy, avatarThumb, avatarOf, avatarFileId, parseAvatarName } from './img-util.js';
 import { handleGetFriendWorldStats } from './tools/events.js';
 
 // 通知类型→中文标签（与前端 ui/src/utils.js 的 notificationTypeLabels 对齐，供 see/hide-notification 摘要拼类型）。
@@ -479,7 +479,7 @@ export function registerDashboardServices(loader, ctx) {
     // 从 avatarImageUrl 的 file ID 查 /file/{id}（file.name 形如 "Avatar - 模型名 - Image - ..."）。
     // 冷启动时不能阻塞 events 响应（限流器 2.6s/请求 + 路由器到 VRChat API 延迟大 → 首屏可等 1 分钟+）。
     // 策略：内存缓存 + planet_cache 落盘（重启不丢）；未命中的丢后台限流补，本次响应立即返回。
-    const parseAvName = (n) => { if (!n) return ''; const m = String(n).match(/^Avatar\s*-\s*(.+?)(\s*-\s*(Image|File|Texture|Thumbnail|VRChat)?.*)?$/i); return m ? m[1].trim() : String(n); };
+    const parseAvName = parseAvatarName;   // 共享实现（core/img-util.js）
     const anCache = loader._avatarNameCache || (loader._avatarNameCache = new Map());
     if (!loader._avatarNameCacheLoaded) {
       loader._avatarNameCacheLoaded = true;
