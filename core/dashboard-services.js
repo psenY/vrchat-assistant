@@ -376,6 +376,10 @@ export function registerDashboardServices(loader, ctx) {
         userId: row.user_id,
         displayName: row.display_name || row.friendDisplayName || user.displayName || row.user_id || '系统',
         trustLevel: row.trustLevel || '',
+        // 信任等级变更的"原值"（用户 2026-09-22 报障：动态流显示「(空) → Trusted User」）：
+        // event-pipeline/friend-refresh 写入的 content_json 带 previousTrustLevel，但本 DTO 的字段白名单
+        // 漏了它 → 前端 `x.previousTrustLevel || '(空)'` 永远渲染成 (空)。
+        previousTrustLevel: content.previousTrustLevel || '',
         createdAt: row.created_at,
         worldId,
         worldName,
