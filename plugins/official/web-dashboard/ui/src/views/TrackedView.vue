@@ -324,6 +324,13 @@ onMounted(load);
             <b :style="{ color: trustColor(x.trustLevel) }">{{ x.displayName || x.userId }}</b>
             <small v-if="memoOf(x)" class="fc-memo" :title="memoOf(x)">{{ memoOf(x) }}</small>
             <small><span class="fc-dot" :style="statusDotStyle(x.location)"></span>{{ statusText(x.status) }}<i v-if="platformIcon(x.platform)" class="pi fc-plat" :class="platformIcon(x.platform)" :title="platformLabel(x.platform)"></i><!-- 2026-09-22 用户报「平台图标是乱码」✗：漏了 pi（图标字体基础类）与 fc-plat（尺寸样式）⇒ 渲染成豆腐块 ✓；现与好友页写法完全一致 ✓ --></small>
+            <small class="tk-meta">
+                          <span v-if="lastChangeAt(x)">最近变化 {{ reltime(lastChangeAt(x)) }}</span>
+                          <span v-if="lastChangeAt(x) && x.lastRefreshAt">·</span>
+                          <span v-if="x.lastRefreshAt">上次检测 {{ fmtRefresh(x.lastRefreshAt) }}</span>
+                          <span v-if="!lastChangeAt(x) && !x.lastRefreshAt">暂无记录</span>
+                        </small>
+            
           </div>
         </div>
         <!-- 展开：变化时间线 -->
