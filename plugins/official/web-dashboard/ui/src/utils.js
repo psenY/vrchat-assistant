@@ -216,7 +216,10 @@ export function fmtMin(m) {
 }
 
 // 状态中文标签
-export const statusLabels = { active: '在线', 'join me': '欢迎加入', 'ask me': '忙碌', busy: '请勿打扰', offline: '离线' };
+// 2026-09-22 修正（用户实测发现「忙碌」出现的场合不对）：VRChat 四种状态＝Active / Join Me / Ask Me / Busy
+// ⇒ 中文为 在线 / 欢迎加入 / 询问我 / 忙碌 ✓。原映射把 ask me→忙碌、busy→请勿打扰 ✗（后两档整体错位一档 ✓）。
+// 注：本映射好友页与追踪页共用，改一处两页同时生效 ✓。
+export const statusLabels = { active: '在线', 'join me': '欢迎加入', 'ask me': '询问我', busy: '忙碌', offline: '离线' };
 
 // 事件类型中文
 export const eventTypeLabels = {
