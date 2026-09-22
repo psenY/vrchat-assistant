@@ -871,6 +871,19 @@ export function registerDashboardServices(loader, ctx) {
       const selfId = getSelfUserId(ctx.storage);
       // 2026-09-22 用户报障「非好友追踪页全是大写首字母」：追踪表的 avatarUrl 常常是空的 ⇒ 回退到该用户最近一次带图的事件 ✓
       // 2026-09-22：追踪行补 worldName（world_id → world_cache.name ✓）；实测 /users/{id} 对非好友会给 worldId ✓
+      // 2026-09-22：非好友的**当前模型名**——iconUrl 的 fileId 已在刷新时解析进 planet_cache（avatar_name:<fid> ✓）
+      // 此处按行的 avatarUrl 反查缓存即可 ✓（与补名链路同一张表 ✓，不重复打接口 ✓）
+      const avatarNameOf = (url) => {
+        try {
+          const fid = avatarFileId(url);
+          if (!fid) return '';
+          const row = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key = $k`, { $k: `avatar_name:${fid}` })[0];
+          if (!row) return '';
+          const v = JSON.parse(row.payload || '{}');
+          if (v.until && v.until <= Date.now()) return '';
+          return v.name || '';
+        } catch { return ''; }
+      };
       const worldNameOf = (wid) => {
         if (!wid || wid === 'private' || wid === 'offline' || wid.startsWith('offline')) return '';
         try { const w = ctx.storage.query(`SELECT name FROM world_cache WHERE world_id = $w`, { $w: wid })[0]; return (w && w.name) || ''; } catch { return ''; }
@@ -879,6 +892,7 @@ export function registerDashboardServices(loader, ctx) {
         // 2026-09-22：新列以**驼峰**暴露给前端（前端统一用 camelCase ✓；此前 { ...r } 透传的是下划线式 ✗）
         lastActivity: r.last_activity || '', platform: r.platform || '', worldId: r.world_id || '',
         trustLevel: r.trust_level || '',   // 2026-09-22：非好友信任等级（来自 tags ✓）
+        avatarName: avatarNameOf(r.avatarUrl),   // 2026-09-22：当前模型名（iconUrl → /file 解析 + 缓存 ✓）
         worldName: worldNameOf(r.world_id) })) };
     } catch {
       return { tracked: [] };

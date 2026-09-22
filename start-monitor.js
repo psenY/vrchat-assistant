@@ -14,7 +14,7 @@ import { refreshFriendList, trustFromTags } from './core/friend-refresh.js';   /
 
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
 import { isWebPresence } from './core/event-pipeline.js';
-import { avatarFileId } from './core/img-util.js';
+import { avatarFileId, parseAvatarName } from './core/img-util.js';   // parseAvatarName：模型文件名 → 模型名（与补名链路同一实现 ✓）
 import { pickOfflineWindowStart } from './core/offline-window.js';
 import { initLogger, getLevelName, getLogger } from './core/logger.js';
 import { recordOpsLog, setOpsLogSink } from './core/ops-log.js';
@@ -364,6 +364,29 @@ async function _refreshTrackedNonFriends() {
       const av = userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl || userObj.userIcon || userObj.iconUrl || '';
       const dn = userObj.displayName || u.display_name || '';
       // 2026-09-22：非好友也能拿信任等级——实测 /users/{id} 的 tags 有值 ✓（VRCX 同款 computeTrustLevel 口径 ✓）
+      // 2026-09-22：非好友的**当前模型名**也能拿 ✓（实测：iconUrl 的 fileId → GET /file/{id} → name = 'Avatar - 模型名 - Image - …' ✓）
+      // 与补名链路同一套缓存（avatar_name:<fid> ✓ 含负缓存 ✓），解析不到就留空、不覆盖旧值 ✓
+      const parseAvName = parseAvatarName;   // 与 dashboard-services 同款别名 ✓
+      let avatarName = '';
+      try {
+        const fid = avatarFileId(userObj.iconUrl || '');
+        if (fid) {
+          const cached = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key = $k`, { $k: `avatar_name:${fid}` })[0];
+          let hit = null;
+          if (cached) { try { hit = JSON.parse(cached.payload); } catch { /* 忽略 */ } }
+          if (hit && typeof hit.until === 'number' && hit.until <= Date.now()) hit = null;
+          if (hit) avatarName = hit.name || '';
+          else {
+            const fr = await rateLimiter.execute(() => api._request('GET', '/file/' + encodeURIComponent(fid)));
+            // 2026-09-22：实测 iconUrl 有时是「用户头像/相机图」而非模型图 ✗ ⇒ 文件名形如 file_xxx_camera_user_icon / file_xxx_image
+            // 这类名字**不是模型名**，必须过滤 ✓（真模型名解析后是纯名字，如「测试」✓）
+            const raw = String(parseAvName(fr && fr.data && fr.data.name) || '');
+            avatarName = /^file_[0-9a-f-]{20,}/i.test(raw) ? '' : raw;
+            try { ctx.storage.setPlanetCache(`avatar_name:${fid}`, avatarName ? { name: avatarName, at: Date.now() } : { name: '', miss: true, until: Date.now() + 6 * 3600 * 1000 }); } catch { /* 忽略 */ }
+            if (avatarName) { try { log(`[模型名] 追踪解析 ${fid.slice(0, 16)}… → ${avatarName}`); } catch { /* 忽略 */ } }
+          }
+        }
+      } catch { /* 解析失败留空，下次再试 ✓ */ }
       const tl = (() => { try { return trustFromTags(Array.isArray(userObj.tags) ? userObj.tags : []) || ''; } catch { return ''; } })();
       // 头像变化检测：按 file id 归一化比较（防 currentAvatarImageUrl vs Thumbnail 兜底链或 URL 版本号 /1/ vs /3/ 波动误报）
       const prevAv = u.avatar_image_url || '';
