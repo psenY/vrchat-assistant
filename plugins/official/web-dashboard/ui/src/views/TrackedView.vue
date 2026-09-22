@@ -225,7 +225,9 @@ const locLabel = (l) => { const v = String(l || ''); if (!v || v === 'offline') 
 const statusText = (s) => statusLabels[s] || s || '—';
 // 状态圆点颜色（对齐好友页视觉）：在线系绿色，离线灰色
 function statusDotStyle(loc) {
-  return { background: isOnline(loc) ? '#52c41a' : 'var(--border-strong)' };
+  // 2026-09-22 用户报「状态那行被缩进、圆点看不见」✗：原来用的 var(--border-strong) **项目里没有这个令牌** ✗
+  // ⇒ 背景无效 ⇒ 圆点透明但照样占 8px+间隙 ⇒ 文字看着被缩进 ✓。改用项目真实令牌（与好友页同色系 ✓）。
+  return { background: isOnline(loc) ? 'var(--ok)' : 'var(--text-dim)' };
 }
 // 真实在线判定：只看 location（status 是用户偏好，离线保留）。offline=真离线、offline:offline=网页在线不在世界、traveling=转场，均不算在游戏中。
 const isOnline = (loc) => {
