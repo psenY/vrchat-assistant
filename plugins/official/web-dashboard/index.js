@@ -396,7 +396,7 @@ export default function register(api) {
       };
       const [overview, friends, events, eventsRange] = await Promise.all([
         safe('dashboard.snapshot'),
-        safe('dashboard.friends', { limit: 1000 }),
+        // #4（2026-09-22）：首屏不再预载 1000 好友（它是 115KB 里的大头）——前端拿到首屏后自己在后台补拉 ✓
         safe('dashboard.events', { limit, offset: 0, dateFrom, dateTo }),
         safe('dashboard.eventsRange'),
       ]);

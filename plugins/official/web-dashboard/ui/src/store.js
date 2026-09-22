@@ -289,7 +289,18 @@ export async function load(quiet = false) {
     const boot = await get('/api/dashboard/bootstrap?limit=50').catch(() => null);
     if (boot && (boot.overview || boot.friends)) {
       o = boot.overview;
-      f = boot.friends;
+      f = boot.friends || null;   // #4：首屏不再带全量好友 ⇒ 画面出来后在后台补拉 ✓
+      if (!f) {
+        // 低风险做法：不阻塞首屏；好友页与"是否好友"判定会晚 1-2 秒生效 ✓
+        setTimeout(() => {
+          get('/api/dashboard/friends?limit=1000')
+            .then((ff) => {
+              const arr = (ff && ff.friends) || (Array.isArray(ff) ? ff : null);
+              if (arr) { store.friends = arr; syncRightGroups(); }
+            })
+            .catch(() => {});
+        }, 50);
+      }
       parsed = parseEvents({ events: boot.events || [], total: boot.total || 0 });
       rng = boot.eventsRange;
     } else {
