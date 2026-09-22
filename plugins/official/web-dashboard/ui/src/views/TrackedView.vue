@@ -494,4 +494,28 @@ onMounted(load);
   .tk-detail { margin-left: 0; }
   .tc-old, .tc-new { white-space: normal; }
 }
+
+/* ── tk-polish-2026-09-22（用户："非好友追踪这个界面是不是太丑了"）────────────────
+   只加样式、不动结构：修「筛选 chip 被挤成孤字」「详情内容贴左留白」「时间列不对齐」「头像对尺寸不一」。
+   全部使用项目令牌（--surface/--border-soft/--text/--text-dim）✓ 不引入新颜色 ✓ */
+/* 1) 筛选 chip 行：允许换行、均匀间距，避免「头像」被拆成孤字 */
+.tc-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tc-chip { white-space: nowrap; }
+/* 2) 时间列：等宽数字 + 稍宽，时间与内容对齐 */
+.tc-rail { width: 86px; font-variant-numeric: tabular-nums; }
+.tc-rail b, .tc-rail strong { font-size: 12.5px; color: var(--text); }
+.tc-date { font-size: 10px; color: var(--text-dim); }
+/* 3) 内容列：占满剩余宽度、正文用主文本色（旧值仍为 dim + 删除线）*/
+.tc-body { flex: 1; min-width: 0; color: var(--text); }
+.tc-body > * { min-width: 0; }
+.tc-new { color: var(--text); }
+/* 4) 头像对：统一 24px 圆角，与全站 .av-thumb 一致 */
+.tc-avpair { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.tc-av { width: 24px; height: 24px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border-soft); }
+.tc-avnone { display: inline-flex; align-items: center; justify-content: center; font-size: 10px; color: var(--text-dim); }
+.tc-avlabel { font-size: 9px; color: var(--text-dim); }
+.tc-avarrow { color: var(--text-dim); }
+/* 5) 卡片：与其它列表一致的分隔与悬停反馈 */
+.tc-card { border: 1px solid var(--border-soft); border-radius: var(--radius); }
+.tc-card:hover { border-color: var(--border); }
 </style>
