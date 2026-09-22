@@ -78,6 +78,21 @@ function notificationTypeLabel(content) {
 
 // 自己 userId 的权威推导：user-location/user-update 事件只会是自己的（事件管线保证），
 // 种子导入/列表展示用它排除自己（/auth/user 在启动早期可能失败或缓存未就绪）
+// 2026-09-22：非好友没有 currentAvatarName ✗，但 iconUrl 的 fileId 可解出当前模型名 ✓
+// （链：iconUrl → avatarFileId → planet_cache[avatar_name:<fid>] ← 由追踪刷新/事件补名写入 ✓）
+function avatarNameFromIconUrl(storage, iconUrl) {
+  try {
+    const fid = avatarFileId(iconUrl);
+    if (!fid) return '';
+    const row = storage.query('SELECT payload FROM planet_cache WHERE key = $k', { $k: 'avatar_name:' + fid })[0];
+    if (!row) return '';
+    const v = JSON.parse(row.payload || '{}');
+    if (v.until && v.until <= Date.now()) return '';
+    const nm = String(v.name || '');
+    return /^file_[0-9a-f-]{20,}/i.test(nm) ? '' : nm;
+  } catch { return ''; }
+}
+
 export function getSelfUserId(storage) {
   try {
     const row = storage.query(
@@ -460,7 +475,8 @@ export function registerDashboardServices(loader, ctx) {
         statusDescription: user.statusDescription || content.statusDescription || '',
         previousStatus: content.previousStatus || '',
         previousStatusDescription: content.previousStatusDescription || '',
-        avatarName: content.avatarName || user.currentAvatarName || '',
+        // 2026-09-22：非好友两个字段都空 ⇒ 用 iconUrl 链兜底 ✓（弹窗「正在使用的模型」就能显示 ✓）
+        avatarName: content.avatarName || user.currentAvatarName || avatarNameFromIconUrl(ctx.storage, user.iconUrl),
         previousAvatarName: content.previousAvatarName || '',
         // avatarId 富化：WS 推送不含 currentAvatar，从 planet_cache 的 imageUrl→avatarId 映射反查（_syncFriendAvatars 建立）
         avatarId: content.avatarId || user.currentAvatar || (() => {
@@ -1429,8 +1445,9 @@ export function registerDashboardServices(loader, ctx) {
     let avatarName = '';
     try {
       // 2026-09-22 issue #225：此处兜底取的正是 currentAvatarThumbnailImageUrl（image 形态 ✗）⇒ 好友详情页模型名一直为空 ✓；收敛到 avatarFileId() ✓
-      const fid = avatarFileId(user && (user.currentAvatarImageUrl || user.currentAvatarThumbnailImageUrl) || '');
-      if (fm) {
+      // 2026-09-22：非好友这两个字段都不存在 ✗，而 iconUrl 有值 ✓ ⇒ 补进链尾，弹窗模型名即可显示 ✓
+      const fid = avatarFileId(user && (user.currentAvatarImageUrl || user.currentAvatarThumbnailImageUrl || user.iconUrl) || '');
+      if (fid) {   // 2026-09-22：原为 if (fm) ✗ —— 非好友没有 avimg: 映射 ⇒ 整个查询被跳过 ⇒ 模型名恒空 ✓
         const anCache = loader._avatarNameCache || (loader._avatarNameCache = new Map());
         if (fid && anCache.has(fid)) avatarName = anCache.get(fid);
         else {

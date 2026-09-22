@@ -264,14 +264,14 @@ const rawJson = computed(() => {
           <div v-if="bio" class="bio">{{ bio }}</div>
           <div class="facts">
             <div class="fact"><span>正在使用的模型</span><span v-if="profile.avatarName" class="link" :title="'点击放大查看：' + profile.avatarName" @click="openPreview(pUser.currentAvatarImageUrl || pUser.currentAvatarThumbnailImageUrl || '')">{{ profile.avatarName }}</span><span v-else>—</span></div>
-            <div class="fact"><span>最后见面时间</span><span>{{ pStats.lastMeet ? date(pStats.lastMeet) + ' ' + time(pStats.lastMeet) : '-' }}</span></div>
-            <div class="fact"><span>见面的次数</span><span>{{ pStats.meetCount }}</span></div>
-            <div class="fact"><span>一起游玩的时长</span><span>{{ fmtDur(pStats.timeSpentMs) }}</span></div>
-            <div class="fact"><span>本次在线时长</span><span>{{ fmtDur(pStats.currentOnlineMs) }}</span></div>
-            <div class="fact"><span>最后活动时间</span><span>{{ ago(pStats.lastActivity) }}</span></div>
-            <div class="fact"><span>上线次数</span><span>{{ pStats.joinCount }}</span></div>
+            <div v-if="isFriend" class="fact"><span>最后见面时间</span><span>{{ pStats.lastMeet ? date(pStats.lastMeet) + ' ' + time(pStats.lastMeet) : '-' }}</span></div>
+            <div v-if="isFriend" class="fact"><span>见面的次数</span><span>{{ pStats.meetCount }}</span></div>
+            <div v-if="isFriend" class="fact"><span>一起游玩的时长</span><span>{{ fmtDur(pStats.timeSpentMs) }}</span></div>
+            <div v-if="isFriend" class="fact"><span>本次在线时长</span><span>{{ fmtDur(pStats.currentOnlineMs) }}</span></div>
+            <div class="fact"><span>上次资料变化</span><!-- 2026-09-22 改名：该值来自我们自己的记录，不是 VRChat 的"最后活动" ✓ --><span>{{ ago(pStats.lastActivity) }}</span></div>
+            <div v-if="isFriend" class="fact"><span>上线次数</span><span>{{ pStats.joinCount }}</span></div>
             <div class="fact"><span>账号创建日期</span><span>{{ pStats.dateJoined || '-' }}</span></div>
-            <div class="fact"><span>添加为好友的时间</span><span>{{ pStats.dateFriended ? date(pStats.dateFriended) : '-' }}</span></div>
+            <div v-if="isFriend" class="fact"><span>添加为好友的时间</span><span>{{ pStats.dateFriended ? date(pStats.dateFriended) : '-' }}</span></div>
             <div class="fact"><span>是否允许克隆模型</span><span>{{ pStats.allowAvatarCopying ? '允许' : '不允许' }}</span></div>
             <div class="fact"><span>玩家 ID</span><span class="mono">{{ user.userId }}</span></div>
           </div>
