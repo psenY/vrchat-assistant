@@ -498,7 +498,9 @@ onMounted(load);
    宽屏改为多列卡片网格：一屏 2 列（≥1200px）/ 3 列（≥1700px），窄屏保持 1 列。
    展开的详情用 :has() 自动占满整行（Chromium 支持 ✓），避免详情被挤在 570px 里。*/
 /* 2026-09-22 用户：与好友页**同一套网格**（.fg-body 同款 auto-fill minmax(240px,1fr) ⇒ 宽屏约 5 个/行 ✓）*/
-.tk-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; align-items: start; }
+/* 2026-09-22 用户：有备注和没备注的块高度不一样 ✗ => 去掉我自加的 align-items:start，
+   与好友页 .fg-body 完全一致（默认 stretch = 同一行卡片自动等高 ✓）*/
+.tk-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; }
 @media (max-width: 900px) { .tk-list { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 640px) { .tk-list { grid-template-columns: 1fr; } }
 .tk-item:has(.tk-row.open) { grid-column: 1 / -1; }
@@ -637,5 +639,12 @@ onMounted(load);
 @media (max-width: 560px) {
   .fg-body { grid-template-columns: 1fr; }
 }
+
+
+/* 2026-09-22 用户：有备注和没备注的块高度不一样 ✗
+   网格项 .tk-item 会被 stretch 拉齐 ✓，但项内的卡片不跟着撑满 ✗ ⇒ 补这几条：
+   让 .tk-item 变成等高列、卡片 height:100% 填满 ✓（等价于"同排卡片一样高"✓） */
+.tk-list > .tk-item { display: flex; flex-direction: column; }
+.tk-list > .tk-item > .friend-card { height: 100%; }
 
 </style>
