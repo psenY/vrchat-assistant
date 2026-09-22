@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
 import { get, post } from '../api.js';
-import { time, date, dateTime, avatarLabel , reltime, statusLabels, trustColor, platformIcon, platformLabel } from '../utils.js';
+import { time, date, dateTime, avatarLabel , reltime, statusLabels } from '../utils.js';
 import { statusColor } from '../composables/useFriendGroups.js';
 import { openUser } from '../store.js';
 import { toast } from '../toast.js';
@@ -319,9 +319,9 @@ onMounted(load);
         <div class="friend-card" role="button" tabindex="0" @click="openUser(x.userId)" @keydown.enter="openUser(x.userId)">
           <Avatar :image="x.avatarUrl || ''" :label="avatarLabel(x.avatarUrl, x.displayName)" shape="circle" />
           <div class="fc-text">
-            <b :style="{ color: trustColor(x.trustLevel) }">{{ x.displayName || x.userId }}</b>
+            <b>{{ x.displayName || x.userId }}</b>
             <small v-if="memoOf(x)" class="fc-memo" :title="memoOf(x)">{{ memoOf(x) }}</small>
-            <small><span class="fc-dot" :style="statusDotStyle(x.location)"></span>{{ statusText(x.status) }}<i v-if="platformIcon(x.platform)" :class="platformIcon(x.platform)" :title="platformLabel(x.platform)"></i></small>
+            <small><span class="fc-dot" :style="statusDotStyle(x.location)"></span>{{ statusText(x.status) }}</small>
           </div>
         </div>
         <!-- 展开：变化时间线 -->
@@ -504,10 +504,12 @@ onMounted(load);
 /* ── tk-grid-2026-09-22（用户：「PC 端你不觉得一条太长了吗？」）────────────────
    宽屏改为多列卡片网格：一屏 2 列（≥1200px）/ 3 列（≥1700px），窄屏保持 1 列。
    展开的详情用 :has() 自动占满整行（Chromium 支持 ✓），避免详情被挤在 570px 里。*/
-/* 2026-09-22 用户：与好友页**同一套网格**（.fg-body 同款 auto-fill minmax(240px,1fr) ⇒ 宽屏约 5 个/行 ✓）*/
-.tk-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; align-items: start; }
-@media (max-width: 900px) { .tk-list { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 640px) { .tk-list { grid-template-columns: 1fr; } }
+@media (min-width: 1200px) {
+  .tk-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
+}
+@media (min-width: 1700px) {
+  .tk-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 .tk-item:has(.tk-row.open) { grid-column: 1 / -1; }
 
 /* ── tk-sub-oneline-2026-09-22（用户：「最近变化和上次检测可以放到一行吧？」）───────────
