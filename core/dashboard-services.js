@@ -858,7 +858,9 @@ export function registerDashboardServices(loader, ctx) {
                 t.added_at AS addedAt, t.last_refresh_at AS lastRefreshAt,
                 (SELECT e.created_at FROM events e
                   WHERE e.user_id = t.user_id AND e.type = 'friend-update' AND e.source = 'poll'
-                  ORDER BY e.id DESC LIMIT 1) AS lastChangeAt
+                  ORDER BY e.id DESC LIMIT 1) AS lastChangeAt,
+                  -- 2026-09-22 新增三列（不加别名 ⇒ DTO 用 r.last_activity / r.platform / r.world_id 映射为驼峰 ✓）
+                  t.last_activity, t.platform, t.world_id
          FROM tracked_non_friends t
          -- 权威源兜底(#164 补漏):列表只含"当前非好友"。friend-add 联动写 removed_at 是事件驱动,
          -- 事件丢失(停机/断连窗口内加好友)会残留;LEFT JOIN friends 排除,若日后解除好友自动回列。

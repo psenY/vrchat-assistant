@@ -352,6 +352,13 @@ async function _refreshTrackedNonFriends() {
       const r = await rateLimiter.execute(() => api._request('GET', `/users/${encodeURIComponent(u.user_id)}`));
       if (r.status !== 200 || !r.data || r.data.error) continue;
       const userObj = r.data;
+      // PROBE-V（低噪音）：只在"可能在线"或"有最后在线时间"时留样，便于抓到在线形态 ✓
+      try {
+        const pf = userObj.platform || '', wid = String(userObj.worldId || ''), la = userObj.last_activity || null;
+        if ((pf && pf !== 'offline') || (wid && wid !== 'offline') || la) {
+          log('[PROBE-V] ' + JSON.stringify({ n: (userObj.displayName || '').slice(0, 12), st: userObj.state, pf: pf, lpf: userObj.last_platform, wid: wid.slice(0, 14), loc: String(userObj.location || '').slice(0, 16), la: la, lg: userObj.last_login || null }));
+        }
+      } catch (e) {}
       const av = userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl || userObj.userIcon || '';
       const dn = userObj.displayName || u.display_name || '';
       // 头像变化检测：按 file id 归一化比较（防 currentAvatarImageUrl vs Thumbnail 兜底链或 URL 版本号 /1/ vs /3/ 波动误报）
@@ -375,16 +382,19 @@ async function _refreshTrackedNonFriends() {
       const stDesc = userObj.statusDescription || '';
       const loc = userObj.location || '';
       if (av || dn || st || loc) {
-        storage.run(
-          `UPDATE tracked_non_friends SET avatar_image_url=$a, display_name=$d, status=$s, status_description=$sd, location=$l, last_activity=$la, platform=$p, world_id=$w, last_refresh_at=datetime('now') WHERE user_id=$u`,
-          { $a: av, $d: dn, $s: st, $sd: stDesc, $l: loc,
-            // 2026-09-22 新增：用户实测确认这些字段对非好友也返回 ✓（探针打印字段名验证 ✓）
-            $la: String(userObj.last_activity || ''),
-            // 2026-09-22 实测：离线时 userObj.platform 是字符串 'offline' ✗（不是空 ✗）⇒ 会挡住兜底；
-            // 故先剔除 'offline'，再用 last_platform（实测有值：standalonewindows ✓）
-            $p: String((userObj.platform && userObj.platform !== 'offline' ? userObj.platform : '') || userObj.last_platform || ''),
-            $w: String(userObj.worldId || ''), $u: u.user_id }
-        );
+        try {
+
+          storage.run(
+            `UPDATE tracked_non_friends SET avatar_image_url=$a, display_name=$d, status=$s, status_description=$sd, location=$l, last_activity=$la, platform=$p, world_id=$w, last_refresh_at=datetime('now') WHERE user_id=$u`,
+            { $a: av, $d: dn, $s: st, $sd: stDesc, $l: loc,
+              // 2026-09-22 新增：用户实测确认这些字段对非好友也返回 ✓（探针打印字段名验证 ✓）
+              $la: String(userObj.last_activity || ''),
+              // 2026-09-22 实测：离线时 userObj.platform 是字符串 'offline' ✗（不是空 ✗）⇒ 会挡住兜底；
+              // 故先剔除 'offline'，再用 last_platform（实测有值：standalonewindows ✓）
+              $p: String((userObj.platform && userObj.platform !== 'offline' ? userObj.platform : '') || userObj.last_platform || ''),
+              $w: String(userObj.worldId || ''), $u: u.user_id }
+          );
+        } catch (e) { log(`[追踪] 写入失败（留痕）：${e.message}`); }   // 2026-09-22 新增留痕：此前静默 ✗
       }
       // location/上下线变化检测（#146）：轮询 1h 低频，offline/offline:offline/traveling 离线态微动与转场不记录
       const locPrev = u.location || '';
