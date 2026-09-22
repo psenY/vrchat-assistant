@@ -97,19 +97,19 @@ onMounted(load);
 
 <style scoped>
 .settings-wrap { padding: 12px 14px; max-width: 720px; }
-.set-card { background: var(--surface-a, #fff); border: 1px solid var(--surface-border, #ddd); border-radius: 10px; padding: 16px; }
+.set-card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 10px; padding: 16px; }
 .set-title { display: flex; align-items: baseline; gap: 8px; margin-bottom: 14px; }
-.set-title i { color: var(--text-color-secondary, #888); }
-.set-sub { color: var(--text-color-secondary, #888); font-size: 12px; }
+.set-title i { color: var(--text-dim); }
+.set-sub { color: var(--text-dim); font-size: 12px; }
 .set-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .set-toggle-row { flex-direction: row; align-items: center; flex-wrap: wrap; cursor: pointer; }
-.set-toggle { width: 18px; height: 18px; accent-color: var(--primary-color, #3f6ad8); }
+.set-toggle { width: 18px; height: 18px; accent-color: var(--accent, #7c5cff); }
 .set-toggle-label { font-weight: 600; }
-.set-toggle-hint { flex-basis: 100%; color: var(--text-color-secondary, #888); font-size: 12px; }
+.set-toggle-hint { flex-basis: 100%; color: var(--text-dim); font-size: 12px; }
 .set-label { font-weight: 600; }
-.set-input { width: 100%; padding: 8px 10px; border: 1px solid var(--surface-border, #ccc); border-radius: 6px; background: transparent; color: inherit; }
-.set-hint { color: var(--text-color-secondary, #888); font-size: 12px; }
-.set-meta { flex-direction: row; gap: 18px; color: var(--text-color-secondary, #888); font-size: 12px; flex-wrap: wrap; }
+.set-input { width: 100%; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: 6px; background: transparent; color: inherit; }
+.set-hint { color: var(--text-dim); font-size: 12px; }
+.set-meta { flex-direction: row; gap: 18px; color: var(--text-dim); font-size: 12px; flex-wrap: wrap; }
 .set-actions { display: flex; gap: 10px; }
 @media (max-width: 640px) { .settings-wrap { padding: 10px 8px; } .set-card { padding: 12px; } }
 </style>
