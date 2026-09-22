@@ -24,6 +24,54 @@ afterEach(() => {
   vi.resetModules();
 });
 
+/** 记录调用参数的 fetch 替身；按 statuses 顺序返回 Response 样式对象（镜像 auth-gate.test.js）。 */
+function stubFetch(statuses) {
+  const calls = [];
+  const queue = [...statuses];
+  globalThis.fetch = vi.fn(async (url, opts = {}) => {
+    calls.push({ url: String(url), opts });
+    const status = queue.length ? queue.shift() : 200;
+    return { ok: status >= 200 && status < 300, status, json: async () => ({}) };
+  });
+  return calls;
+}
+
+describe('令牌传输：普通请求走 Authorization 头、不进 URL（issue #217）', () => {
+  it('get() 带 Authorization，URL 不含 token=', async () => {
+    setupEnv('?token=abc123');
+    const calls = stubFetch([200]);
+    const { get } = await import('./api.js');
+    await get('/api/dashboard/x');
+    expect(calls[0].url).toBe('/api/dashboard/x');
+    expect(String(calls[0].url)).not.toContain('token=');
+    expect(calls[0].opts.headers.Authorization).toBe('Bearer abc123');
+  });
+
+  it('post() 同时带 Content-Type 与 Authorization', async () => {
+    setupEnv('?token=abc123');
+    const calls = stubFetch([200]);
+    const { post } = await import('./api.js');
+    await post('/api/dashboard/y', { a: 1 });
+    expect(calls[0].url).toBe('/api/dashboard/y');
+    expect(calls[0].opts.headers['Content-Type']).toBe('application/json');
+    expect(calls[0].opts.headers.Authorization).toBe('Bearer abc123');
+  });
+
+  it('无令牌时不带 Authorization', async () => {
+    setupEnv('');
+    const calls = stubFetch([200]);
+    const { get } = await import('./api.js');
+    await get('/api/dashboard/z');
+    expect(calls[0].opts.headers.Authorization).toBeUndefined();
+  });
+
+  it('SSE 仍用 query 形态（EventSource 无法自定义头，属已知例外）', async () => {
+    setupEnv('?token=abc123');
+    const { apiUrl } = await import('./api.js');
+    expect(apiUrl('/api/dashboard/stream')).toBe('/api/dashboard/stream?token=abc123');
+  });
+});
+
 describe('apiUrl（token 注入）', () => {
   it('无 token 时原样返回', async () => {
     setupEnv('');
