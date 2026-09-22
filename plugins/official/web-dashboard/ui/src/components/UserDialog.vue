@@ -112,7 +112,7 @@ async function onToggleWatch() {
     watchBusy = false;
   }
 }
-const avatarUrl = computed(() => user.value.avatarUrl || user.value.userIcon || pUser.value.currentAvatarThumbnailImageUrl || pUser.value.currentAvatarImageUrl || '');
+const avatarUrl = computed(() => user.value.avatarUrl || user.value.userIcon || pUser.value.currentAvatarThumbnailImageUrl || pUser.value.currentAvatarImageUrl || pUser.value.iconUrl || '');
 const trustLevel = computed(() => {
   // 原始等级（本地记录优先，其次从 API tags 推断——对齐 VRCX computeTrustLevel 的 tag→名映射）
   const lt = pLocal.value.trustLevel;
@@ -263,7 +263,7 @@ const rawJson = computed(() => {
           </div>
           <div v-if="bio" class="bio">{{ bio }}</div>
           <div class="facts">
-            <div class="fact"><span>正在使用的模型</span><span v-if="profile.avatarName" class="link" :title="'点击放大查看：' + profile.avatarName" @click="openPreview(pUser.currentAvatarImageUrl || pUser.currentAvatarThumbnailImageUrl || '')">{{ profile.avatarName }}</span><span v-else>—</span></div>
+            <div class="fact"><span>正在使用的模型</span><span v-if="profile.avatarName" :class="{ link: !!(pUser.currentAvatarImageUrl || pUser.currentAvatarThumbnailImageUrl || pUser.iconUrl) }" :title="'点击放大查看：' + profile.avatarName" @click="openPreview(pUser.currentAvatarImageUrl || pUser.currentAvatarThumbnailImageUrl || pUser.iconUrl || '')">{{ profile.avatarName }}</span><span v-else>—</span></div>
             <div v-if="isFriend" class="fact"><span>最后见面时间</span><span>{{ pStats.lastMeet ? date(pStats.lastMeet) + ' ' + time(pStats.lastMeet) : '-' }}</span></div>
             <div v-if="isFriend" class="fact"><span>见面的次数</span><span>{{ pStats.meetCount }}</span></div>
             <div v-if="isFriend" class="fact"><span>一起游玩的时长</span><span>{{ fmtDur(pStats.timeSpentMs) }}</span></div>
