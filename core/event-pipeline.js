@@ -261,11 +261,16 @@ export class EventPipeline {
       // 库里停在 Known User，而事件里已升 Trusted User）。⇒ 只认 tags 推导；无 tags 视为
       // 未知：既不 diff 也不回写，避免把好数据写坏。
       const trust = trustFromTags(userObj.tags) || '';
+      // 新头像 URL 在外层求值：diff 与回写（后者在 if (prev) 块之外）都要用（2026-09-22 修作用域 bug）
+      const newAvatarUrl = userObj.currentAvatarImageUrl || '';
       const prev = this.storage.getFriend(userId);
       if (prev && prev.user_id) {
         const changes = [];
-        const avatarChanged = prev.avatar_image_url
-          && (prev.avatar_image_url || '') !== (userObj.currentAvatarImageUrl || '');
+        // 用户 2026-09-22 报障「动态里全是未知模型」根因：WS 的 friend-update 载荷**常常不带**
+        // currentAvatarImageUrl → 旧逻辑把它当成「换成空头像」，落库的事件新头像为空 → 前端既拿不到
+        // fileId 也解析不出模型名，只能显示「未知模型」。⇒ 与信任等级同一条纪律：弱源缺字段时**不产生变更**。
+        const avatarChanged = prev.avatar_image_url && newAvatarUrl
+          && (prev.avatar_image_url || '') !== newAvatarUrl;
         if (avatarChanged) {
           changes.push({ type: 'avatar', payload: {
             avatarName: userObj.currentAvatarName || '',
@@ -371,7 +376,7 @@ export class EventPipeline {
         displayName,
         status: userObj.status || '',
         statusDescription: userObj.statusDescription || '',
-        avatarImageUrl: userObj.currentAvatarImageUrl || '',
+        ...(newAvatarUrl ? { avatarImageUrl: newAvatarUrl } : {}),   // 缺字段时不清空已有头像（同上）
         bio: userObj.bio || '',
         userIcon: userObj.userIcon || '',
         pronouns: userObj.pronouns || '',

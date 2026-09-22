@@ -571,7 +571,7 @@ onUnmounted(() => {
 
           <!-- 信任等级变更 -->
           <template v-else-if="typeOf(x) === 'trustLevel'">
-            <span class="dim">信任等级：</span>
+            <!-- 用户 2026-09-22：有盾牌徽章就不必再写「信任等级：」-->
             <!-- 用户 2026-09-22：等级变更用面板既有的描边盾牌徽章（components/TrustBadge.vue）呈现，
                  而不是纯文本「Known User → Trusted User」。空值仍显式写 (空)，避免看起来像"没记录"。 -->
             <span v-if="!x.previousTrustLevel" class="dim">(空)</span>

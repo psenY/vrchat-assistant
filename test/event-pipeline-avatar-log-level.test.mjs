@@ -141,3 +141,14 @@ test('级别穿透：level=debug 落盘含该行，默认 info 落盘不含', as
   assert.ok(infoContent.includes('bio变更'), `同文件应含 info 级 bio 行，实际：${infoContent}`);
   assert.ok(!infoContent.includes('头像变更'), `默认 info 级别文件不得含头像变更行，实际：${infoContent}`);
 });
+
+test('avatar 变更：WS 载荷缺 currentAvatarImageUrl 时不得产生事件、不得清空已存头像（2026-09-22「未知模型」回归）', async () => {
+  initLogger({ dir: path.join(logRoot, 'av-missing'), format: 'text', level: 'debug' });
+  const before = storage.getFriend(USER_ID);
+  const cnt = () => storage.query("SELECT count(*) n FROM events WHERE user_id = $u AND json_extract(content_json,'$.type')='avatar'", { $u: USER_ID })[0].n;
+  const n0 = cnt();
+  await captureConsole(() => pipeline.process(makeUpdate({ avatar: '' })));   // 载荷缺新头像 URL（生产实测常见）
+  assert.equal(cnt(), n0, '缺字段不得产生 avatar 事件（否则前端只能显示「未知模型」）');
+  // 只需保证**不被清空**（同批的资料同步可能用缩略图等非空值刷新该字段，属良性；fileId 不变、名字仍可解析）
+  assert.ok(storage.getFriend(USER_ID).avatar_image_url, '缺字段不得清空已存头像');
+});
