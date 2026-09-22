@@ -38,6 +38,8 @@ const DEFAULT_CONFIG = Object.freeze({
   enabled: false,
   idleTemplate: '挂机中（服务在线）',
   pollSeconds: 60,
+  // 出游戏去抖（issue #218）：连续 N 次观测到「不在游戏」才写挂机文案，默认 2
+  offlineConfirmPolls: 2,
 });
 
 const MIN_POLL_SECONDS = 20;
@@ -78,6 +80,35 @@ export function isWithinCooldown({ lastApplyAt = 0, now = Date.now(), manual = f
  * @param {{idleTemplate: string, savedText: string}} ctx 配置与已捕获文字
  * @returns {{action: 'skip', reason: string}|{action: 'restore', text: string}|{action: 'idle', text: string}}
  */
+/** offlineConfirmPolls 规整：非数字/非法回落默认，越界钳到 [1, 10]（纯函数，便于单测） */
+export function clampConfirmPolls(value, fallback = DEFAULT_CONFIG.offlineConfirmPolls) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(10, Math.max(1, Math.trunc(n)));
+}
+
+/**
+ * 出游戏去抖计数器（issue #218，纯函数便于单测）。
+ *
+ * 背景：VRChat 在**私人房之间切换 / 换图间隙**会瞬时上报 \`offline:offline\`（生产实测有「毫秒级」
+ * 与「分钟级」两种形态）。旧逻辑把「最近一条位置是 offline」直接判为出游戏并立即写挂机文案，
+ * 于是使用者全程在游戏内时状态文字也会来回跳。
+ *
+ * 规则：只有**连续** confirmPolls 次观测到 not_in_game 才算确认出游戏；夹在中间的 in_game /
+ * unknown 会把计数清零。⚠️ 未确认期间调用方**不得推进已判定态（lastState）**——否则下一轮就不存在
+ * 「转换点」，挂机文案将永远写不进去。
+ *
+ * @param {'in_game'|'not_in_game'|'unknown'} state 本次观测到的在场态
+ * @param {number} streak 此前的连续未确认计数
+ * @param {number} confirmPolls 需要的连续次数（>=1）
+ * @returns {{confirmed: boolean, streak: number}} confirmed=true 表示本次可以按「出游戏」处理
+ */
+export function advanceOfflineStreak(state, streak, confirmPolls = DEFAULT_CONFIG.offlineConfirmPolls) {
+  if (state !== 'not_in_game') return { confirmed: false, streak: 0 };
+  const next = Math.max(0, Number(streak) || 0) + 1;
+  return { confirmed: next >= Math.max(1, Number(confirmPolls) || 1), streak: next };
+}
+
 export function decideAction(state, lastState, { idleTemplate, savedText }) {
   if (state === 'unknown') return { action: 'skip', reason: 'state-unknown' };
   if (state === 'in_game') {
@@ -115,12 +146,14 @@ export default function register(api) {
       enabled: raw.enabled === 'true',
       idleTemplate: isValidTemplate(raw.idleTemplate) ? raw.idleTemplate : DEFAULT_CONFIG.idleTemplate,
       pollSeconds: clampPollSeconds(raw.pollSeconds),
+      offlineConfirmPolls: clampConfirmPolls(process.env.VRC_MONITOR_PRESENCE_STATUS_OFFLINE_CONFIRM),
     };
   }
 
   // 进程内状态：跨重启由 api.db 恢复
   let appliedText = '';
   let lastState = '';
+  let offlineStreak = 0;   // 连续未确认「不在游戏」的观测次数（issue #218）
   let lastApplyAt = 0;
   let lastError = '';
   try {
@@ -170,6 +203,16 @@ export default function register(api) {
       return { action: 'skipped', reason: 'consume-failed', detail: lastError };
     }
     const state = (presence && presence.state) || 'unknown';
+
+    // 出游戏去抖（issue #218）：单次假离线不写挂机文案；未确认期间**不推进 lastState**，
+    // 否则下一轮没有转换点、挂机文案永远写不进去（见 advanceOfflineStreak 注释）。
+    {
+      const r = advanceOfflineStreak(state, offlineStreak, config.offlineConfirmPolls);
+      offlineStreak = r.streak;
+      if (state === 'not_in_game' && !r.confirmed) {
+        return { action: 'skipped', reason: 'offline-unconfirmed', streak: r.streak, need: config.offlineConfirmPolls, state };
+      }
+    }
 
     const savedText = readRaw().savedText || '';
     const decision = decideAction(state, lastState, { idleTemplate: config.idleTemplate, savedText });

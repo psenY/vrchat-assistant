@@ -7,7 +7,7 @@
  * 自包含：手写最小 fake api（db / vrchat.fetch / consume 全为可断言的替身），
  * 不触网、不写生产库。
  */
-import { test } from 'node:test';
+import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import register, {
   decideAction,
@@ -100,6 +100,10 @@ test('isWithinCooldown：manual 直通，未写过不算冷却，间隔内算冷
   assert.equal(isWithinCooldown({ lastApplyAt: 0, now }), false);
   assert.equal(isWithinCooldown({ lastApplyAt: now - 70_000, now }), false);
 });
+
+// 既有用例多数只驱动「一次」applyStatus，其语义等价于「去抖已确认」——统一把去抖设为 1，// 使它们继续验证各自关注的逻辑（捕获保护 / 闭环 / 冷却等）。// 去抖本身的行为由下面的「出游戏去抖（集成）」用例显式覆盖（默认 confirm=2）。
+beforeEach(() => { process.env.VRC_MONITOR_PRESENCE_STATUS_OFFLINE_CONFIRM = '1'; });
+afterEach(() => { delete process.env.VRC_MONITOR_PRESENCE_STATUS_OFFLINE_CONFIRM; });
 
 // ── register 行为 ─────────────────────────────────────────────────────────
 test('register：注册两个工具并返回 dispose', () => {
@@ -322,4 +326,36 @@ test('跨重启持久化：enabled / lastState / savedText / lastText 从插件�
   assert.equal(res.lastState, 'not_in_game');
   assert.equal(res.lastText, 'Bot挂机');
   d2();
+});
+
+import { advanceOfflineStreak, clampConfirmPolls } from '../plugins/official/presence-status/index.js';
+
+test('出游戏去抖：单次假离线不确认（issue #218）', () => {
+  const a = advanceOfflineStreak('not_in_game', 0, 2);
+  assert.equal(a.confirmed, false);
+  assert.equal(a.streak, 1);
+});
+
+test('出游戏去抖：连续两次才确认', () => {
+  const a = advanceOfflineStreak('not_in_game', 1, 2);
+  assert.equal(a.confirmed, true);
+  assert.equal(a.streak, 2);
+});
+
+test('出游戏去抖：中间出现 in_game / unknown 会把计数清零', () => {
+  assert.deepEqual(advanceOfflineStreak('in_game', 1, 2), { confirmed: false, streak: 0 });
+  assert.deepEqual(advanceOfflineStreak('unknown', 1, 2), { confirmed: false, streak: 0 });
+});
+
+test('出游戏去抖：confirm=1 时退化为旧行为（向后兼容）', () => {
+  assert.equal(advanceOfflineStreak('not_in_game', 0, 1).confirmed, true);
+});
+
+test('clampConfirmPolls：非法回落默认、越界钳到 [1,10]', () => {
+  assert.equal(clampConfirmPolls(undefined), 2);
+  assert.equal(clampConfirmPolls('abc'), 2);
+  assert.equal(clampConfirmPolls(0), 1);
+  assert.equal(clampConfirmPolls(-5), 1);
+  assert.equal(clampConfirmPolls(99), 10);
+  assert.equal(clampConfirmPolls('3'), 3);
 });
