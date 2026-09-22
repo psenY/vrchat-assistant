@@ -39,7 +39,7 @@ test('等级变化：插入 trust_level 事件 + 回写基线（Known User → T
   await pipeline.process({
     type: 'friend-update', userId: 'usr_xiaofang', displayName: 'XIAOFANG小芳',
     receivedAt: '2026-09-15T13:26:00.000Z',
-    content: { userId: 'usr_xiaofang', user: { ...BASE_USER, trust_level: 'Trusted User' } },
+    content: { userId: 'usr_xiaofang', user: { ...BASE_USER, tags: ['system_trust_trusted'] } },
   });
   const tl = events.filter((e) => e.type === 'friend-update' && e.contentJson && e.contentJson.type === 'trust_level');
   assert.equal(tl.length, 1, '应恰好插入一条 trust_level 事件');
@@ -69,4 +69,20 @@ test('无基线（首次采集 prev 无 trust_level）：不误报', async () =>
     content: { userId: 'usr_xiaofang', user: { ...BASE_USER, trust_level: 'Trusted User' } },
   });
   assert.equal(events.filter((e) => e.type === 'friend-update' && e.contentJson && e.contentJson.type === 'trust_level').length, 0);
+});
+
+test('WS 载荷缺 tags：不得用载荷 trust_level 回落（2026-09-22 天天刷振荡回归）', async () => {
+  const prev = { user_id: 'usr_xiaofang', display_name: 'XIAOFANG小芳', trust_level: 'Trusted User', status: 'active', status_description: '', bio: '', user_icon: '', pronouns: '', avatar_image_url: '' };
+  const { pipeline, events, upserts } = makePipeline(prev);
+  // 缺 tags、只带过时的 trust_level=Known User：旧逻辑会据此把库里已升的 Trusted User 覆盖回去，
+  // 于是 6 小时后的权威轮询（逐好友 GET /users/{id} 按 tags 推导）又报一次「升到 Trusted User」→ 每天刷一条。
+  await pipeline.process({
+    type: 'friend-update', userId: 'usr_xiaofang', displayName: 'XIAOFANG小芳',
+    receivedAt: '2026-09-22T08:37:00.000Z',
+    content: { userId: 'usr_xiaofang', user: { ...BASE_USER, trust_level: 'Known User' } },
+  });
+  const tl = events.filter((e) => e.contentJson && e.contentJson.type === 'trust_level');
+  assert.equal(tl.length, 0, '缺 tags 时不得凭 trust_level 字段判定等级变化');
+  const wrote = upserts.filter((u) => 'trustLevel' in u);
+  assert.equal(wrote.length, 0, '缺 tags 时不得回写 trustLevel（否则会把权威值写坏）');
 });
