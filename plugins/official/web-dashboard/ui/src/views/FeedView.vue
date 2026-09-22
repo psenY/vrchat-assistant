@@ -858,6 +858,9 @@ onUnmounted(() => {
 .arr { color: var(--text-dim); opacity: 0.6; font-size: 11px; }
 .world-link {
 .uicon { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; cursor: pointer; }
+/* 2026-09-22 用户报障「雷霆大头像还在」：行内任何图片一律封顶（防老/迁移数据里未受约束的图撑破整行 ✗）；
+   预览弹窗在行之外，不受此规则影响 ✓ */
+.ev-row img { max-width: 48px; max-height: 48px; object-fit: contain; }
   color: var(--accent-2);
   cursor: pointer;
   padding: 1px 5px;

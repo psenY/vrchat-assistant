@@ -487,7 +487,13 @@ export function registerDashboardServices(loader, ctx) {
         const rows = ctx.storage.query(`SELECT key, payload FROM planet_cache WHERE key LIKE 'avatar_name:%'`);
         for (const r of rows) {
           const fid = String(r.key).slice('avatar_name:'.length);
-          try { const v = JSON.parse(r.payload); if (v && v.name) anCache.set(fid, v.name); } catch { /* ignore */ }
+          try {
+            const v = JSON.parse(r.payload);
+            // 2026-09-22：负缓存（解析不出来的 fileId）也要载入，否则每次翻页都会重试同一批 ✗
+            // —— 深层页全是老数据 ⇒ 每页重试 6 个不可解析的 fileId ⇒ 限流器被打爆（实测 40–105 秒等待/分钟）
+            if (v && v.miss) { if (!v.until || v.until > Date.now()) anCache.set(fid, ''); }
+            else if (v && v.name) anCache.set(fid, v.name);
+          } catch { /* ignore */ }
         }
       } catch { /* 无表/查询失败则仅用内存缓存 */ }
     }
@@ -577,8 +583,21 @@ export function registerDashboardServices(loader, ctx) {
               ? await ctx.rateLimiter.execute(() => ctx.api._request('GET', `/avatars/${encodeURIComponent(avatarId)}`))
               : null;
             const nm = parseAvName(a && a.data && a.data.name);
-            if (nm) { ev[key] = nm; saveAvName(fileId, nm); try { console.log(`[模型名] 已解析 ${fileId.slice(0,20)}… → ${nm}`); } catch { /* 日志失败忽略 */ } }
-          } catch { /* 查询失败保留空名，下次再试 */ }
+            if (nm) {
+              ev[key] = nm;
+              saveAvName(fileId, nm);
+              try { console.log(`[模型名] 已解析 ${fileId.slice(0,20)}… → ${nm}`); } catch { /* 日志失败忽略 */ }
+            } else {
+              // 2026-09-22：解析不出（无 avimg 映射 / API 无 name）⇒ 写**负缓存**（6 小时后才重试）✓
+              // 否则每次翻页都会为同一批老事件重复打 VRChat，把限流器顶满 ✗（用户实测「越往下越慢」）
+              try {
+                anCache.set(fileId, '');
+                ctx.storage.setPlanetCache(`avatar_name:${fileId}`, { name: '', miss: true, until: Date.now() + 6 * 3600 * 1000 });
+              } catch { /* 落盘失败不影响 */ }
+            }
+          } catch { /* 查询失败：同样记负缓存，避免每页重试 ✗ */
+            try { anCache.set(fileId, ''); ctx.storage.setPlanetCache(`avatar_name:${fileId}`, { name: '', miss: true, until: Date.now() + 6 * 3600 * 1000 }); } catch { /* ignore */ }
+          }
         }
       })();
     }
