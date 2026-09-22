@@ -48,6 +48,13 @@ async function main() {
   };
   await send('Page.enable'); await send('Runtime.enable');
 
+  // 2026-09-22：先确认已登录 —— 未登录时每个视图都是同一屏（实测 kids=1 len=83 全一样 ✗）
+  // 不加这道检查会得到"假绿"：什么都没验到却报全部通过 ✓
+  const auth = await evalJs("(document.body.innerText || \"\").includes(\"访问令牌\") ? \"login\" : (document.body.innerText.includes(\"AUTH OK\") ? \"ok\" : \"unknown\")");
+  if (auth !== 'ok') {
+    console.error('✗ 页面不是已登录状态（判定: ' + auth + '）—— 巡回结果不可信，请先在浏览器里登录后再跑 ✓');
+    process.exit(2);
+  }
   const rows = [];
   let bad = 0;
   for (const v of VIEWS) {
