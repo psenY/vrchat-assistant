@@ -273,11 +273,17 @@ const rawJson = computed(() => {
             <div class="fact"><span>账号创建日期</span><span>{{ pStats.dateJoined || '-' }}</span></div>
             <div v-if="isFriend" class="fact"><span>添加为好友的时间</span><span>{{ pStats.dateFriended ? date(pStats.dateFriended) : '-' }}</span></div>
             <div class="fact"><span>是否允许克隆模型</span><span>{{ pStats.allowAvatarCopying ? '允许' : '不允许' }}</span></div>
-            <div class="fact"><span>玩家 ID</span><span class="mono">{{ user.userId }}</span></div>
+            <!-- 2026-09-22 用户：玩家 ID 单独占两列（不然会被换行）；复制按钮挪到这一行右边 -->
+            <div class="fact fact-wide">
+              <span>玩家 ID</span>
+              <span class="mono id-cell">
+                <span class="id-text">{{ user.userId }}</span>
+                <Button label="复制 ID" icon="pi pi-copy" size="small" text @click="copyText(user.userId)" />
+              </span>
+            </div>
           </div>
           <div class="ud-actions">
             <Button v-if="isOnline" label="请求加入" icon="pi pi-send" size="small" @click="openJoin" />
-            <Button label="复制 ID" icon="pi pi-copy" size="small" text @click="copyText(user.userId)" />
             <Button :label="isWatched ? '取消关注' : '关注'" :icon="isWatched ? 'pi pi-eye-slash' : 'pi pi-eye'"
               size="small" :text="!isWatched" :severity="isWatched ? 'danger' : undefined" @click="onToggleWatch" />
             <Button v-if="!isFriend" :label="isTrackedUser ? '取消追踪' : '追踪'" :icon="isTrackedUser ? 'pi pi-user-minus' : 'pi pi-user-plus'"
@@ -428,8 +434,11 @@ const rawJson = computed(() => {
 .fact { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; padding: 4px 0; border-bottom: 1px dashed var(--border-soft); }
 .fact span:first-child { color: var(--text-dim); flex: none; }
 .fact span:last-child { text-align: right; word-break: break-all; }
-.ud-actions { display: flex; gap: 8px; margin-top: 12px; }
+.ud-actions { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
 
+/* 2026-09-22：玩家 ID 单占一行（两列宽），右侧带复制按钮 */
+.facts > .fact-wide { grid-column: 1 / -1; }
+.id-cell { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
 .mini-list { display: flex; flex-direction: column; gap: 4px; }
 .mini-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
 .mini-dim { color: var(--text-dim); font-size: 11px; margin-left: auto; }
