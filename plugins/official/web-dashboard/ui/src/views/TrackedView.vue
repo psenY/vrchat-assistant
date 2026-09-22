@@ -311,13 +311,14 @@ onMounted(load);
     </div>
     <div v-else class="tk-list">
       <div v-for="x in filtered" :key="x.userId" class="tk-item">
-        <button type="button" class="tk-row" :class="{ open: expanded === x.userId }" @click="toggle(x.userId)">
+        <!-- 2026-09-22：由 button 改为 div[role=button] —— 用户要求「资料/移除」放到本行末尾，而 button 内不能嵌套 button ✗（动态流页同做法）-->
+        <div class="tk-row" role="button" tabindex="0" :class="{ open: expanded === x.userId }" @click="toggle(x.userId)" @keydown.enter="toggle(x.userId)">
           <Avatar :image="x.avatarUrl || ''" :label="avatarLabel(x.avatarUrl, x.displayName)" shape="circle" size="large" />
           <div class="tk-info">
             <b class="tk-name">
               <span v-if="x.status" class="tk-dot" :style="statusDotStyle(x.location)" :title="'当前状态：' + statusText(x.status)"></span>
               {{ x.displayName || x.userId }}
-              <Tag v-if="memoOf(x)" class="tk-memotag" :title="memoOf(x)">备注</Tag>
+              <Tag v-if="memoOf(x)" class="tk-memotag" :title="memoOf(x)">{{ memoOf(x) }}</Tag>
             </b>
             <small class="tk-sub">
               <span class="tk-statusline">
@@ -325,22 +326,23 @@ onMounted(load);
                 <span v-if="x.status" class="tk-status" :class="{ on: isOnline(x.location) }">{{ statusText(x.status) }}</span>
               </span>
               <span v-if="lastChangeAt(x)" class="tk-stat">最近变化 {{ reltime(lastChangeAt(x)) }}</span>
+              <span v-if="lastChangeAt(x) && x.lastRefreshAt" class="tk-sep" aria-hidden="true">·</span>
               <span v-if="x.lastRefreshAt" class="tk-stat tk-stat-dim">上次检测 {{ fmtRefresh(x.lastRefreshAt) }}</span>
               <span v-else class="tk-stat tk-stat-dim">尚未检测</span>
             </small>
           </div>
           <span v-if="lastChangeAt(x)" class="tk-dot" title="有资料变化"></span>
-          <Button size="small" text rounded icon="pi pi-pencil" :severity="memoOf(x) ? 'secondary' : 'info'"
+          <Button size="small" text rounded icon="pi pi-pencil" :severity="memoOf(x) ? 'info' : 'secondary'"
             :title="memoOf(x) ? '备注：' + memoOf(x) : '添加备注'" :aria-label="'编辑备注：' + (x.displayName || x.userId)"
             @click.stop="openMemo(x)" />
           <Button size="small" text rounded :icon="expanded === x.userId ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
             :aria-label="expanded === x.userId ? '收起变化历史' : '展开变化历史'" @click.stop="toggle(x.userId)" />
-        </button>
+        </div>
 
-        <div class="tk-actions" @click.stop>
+          <span class="tk-actions" @click.stop>
           <Button size="small" text icon="pi pi-user" label="资料" title="打开资料" :aria-label="'打开 ' + (x.displayName || x.userId) + ' 的资料'" @click="openUser(x.userId)" />
           <Button size="small" text severity="danger" icon="pi pi-user-minus" label="移除" title="移除追踪" :aria-label="'移除追踪 ' + (x.displayName || x.userId)" @click="removeTracked(x)" />
-        </div>
+          </span>
 
         <!-- 展开：变化时间线 -->
         <div v-if="expanded === x.userId" class="tk-detail">
@@ -529,4 +531,12 @@ onMounted(load);
   .tk-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 .tk-item:has(.tk-row.open) { grid-column: 1 / -1; }
+
+/* ── tk-sub-oneline-2026-09-22（用户：「最近变化和上次检测可以放到一行吧？」）───────────
+   元信息强制单行、超出省略；动作按钮随行尾对齐 ✓ */
+.tk-sub { display: flex; align-items: center; flex-wrap: nowrap; overflow: hidden; white-space: nowrap; gap: 6px; }
+.tk-sub > * { flex: none; }
+.tk-uid { overflow: hidden; text-overflow: ellipsis; max-width: 210px; }
+.tk-sep { color: var(--text-dim); }
+.tk-row .tk-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; flex: none; }
 </style>
