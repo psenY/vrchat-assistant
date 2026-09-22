@@ -12,6 +12,16 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// ── stdout 是**数据通道**（每行一个工具名，供 check-doc-drift.py 解析），必须与日志通道隔离 ──
+// 插件加载期 core/logger.js 写出的 INFO 行会混进 stdout 并被当成工具名——实测 2026-09-22：
+// events 插件加载失败时 3 行 `[registry] tool "..." in manifest but not registered` 被
+// check-doc-drift.py 解析成工具名，误报「新增工具未登记」+「skill 引用了不存在的工具」。
+// 同时本脚本承诺"无副作用"：文件通道一并关闭，避免每跑一次就往生产 logs/ 写噪音。
+// 注意必须在**动态 import 之前**设置（logger 惰性初始化，首个 write() 时读 env）；
+// 需调试插件加载日志时请另写诊断脚本（给 PluginLoader 传自定义 log），不要放开这里。
+process.env.VRC_MONITOR_LOGGER_LEVEL = 'silent';
+process.env.VRC_MONITOR_LOGGER_FILE = '0';
+
 const { ctx } = await import(pathToFileURL(path.join(__dirname, '..', 'core', 'server-context.js')).href);
 const { Storage } = await import(pathToFileURL(path.join(__dirname, '..', 'core', 'storage.js')).href);
 const { PluginLoader } = await import(pathToFileURL(path.join(__dirname, '..', 'core', 'plugin-loader.js')).href);

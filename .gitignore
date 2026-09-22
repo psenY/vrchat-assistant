@@ -17,7 +17,11 @@ api_calendar_config.json
 .env
 .env.*
 !.env.example
+# 两种形态都要挡：目录（node_modules/）与符号链接/文件（node_modules）。
+# 带斜杠的模式只匹配目录，贡献者容器里的 node_modules 符号链接曾被 git add -A 混入并推到 main
+# （2026-09-22 清理：移除误提交的 node_modules 符号链接）
 node_modules/
+node_modules
 __pycache__/
 *.pyc
 service-logs/
