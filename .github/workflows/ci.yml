@@ -132,6 +132,21 @@ jobs:
             exit 1
           fi
 
+      - name: Windows scripts are ASCII-only (issue #216)
+        shell: bash
+        run: |
+          # cmd.exe 按「当前控制台代码页」解析批处理文件本身；含非 ASCII 的 .cmd 在 cp936
+          # 下会整行错位（issue #212）。约定写在 service-windows/README.md，这里把它变成门禁。
+          bad=0
+          for f in service-windows/*.cmd service-windows/*.bat; do
+            [ -e "$f" ] || continue
+            if ! perl -ne 'exit 1 if /[^\x00-\x7f]/' "$f"; then
+              echo "::error::$f contains non-ASCII bytes — .cmd/.bat must stay ASCII-only (issue #212/#216); put localized text in a separate .txt"
+              bad=1
+            fi
+          done
+          exit $bad
+
       - name: Install UI deps
         run: npm ci --prefix plugins/official/web-dashboard/ui
 
