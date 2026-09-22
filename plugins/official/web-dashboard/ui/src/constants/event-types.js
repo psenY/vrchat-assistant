@@ -23,7 +23,7 @@ export const TYPE_ICONS = {
 
 export const TYPE_SEVERITIES = {
   location: 'info', online: 'success', offline: 'secondary', status: 'warning', avatar: 'warn',
-  bio: 'contrast', userIcon: 'secondary', pronouns: 'contrast', displayName: 'warn',
+  bio: 'contrast', userIcon: 'secondary', pronouns: 'contrast', displayName: 'warn',  trustLevel: 'contrast',
   friendRequest: 'success', invite: 'info', message: 'secondary', group: 'warn',
   notification: 'secondary', notificationUpdate: 'secondary', friendAdd: 'success',
   friendDelete: 'danger', unknown: 'secondary', contentRefresh: 'info', groupJoined: 'success',
