@@ -169,7 +169,7 @@ onUnmounted(() => {
       <div v-for="(x, i) in shown" :key="(src === 'file' ? 'f' : 'd') + '-' + i + '-' + x.ts" class="lv-row">
         <span class="lv-time mono" :title="rowTime(x)">{{ time(rowTime(x)) }}<small>{{ date(rowTime(x)) }}</small></span>
         <template v-if="src === 'db'">
-          <Tag :value="KIND_LABEL[x.kind] || x.kind" :severity="x.kind === 'ws' ? 'info' : 'contrast'" rounded />
+          <Tag :value="KIND_LABEL[x.kind] || x.kind" :severity="x.kind === 'ws' ? 'info' : 'secondary'" rounded />
         </template>
         <template v-else>
           <Tag :value="x.name" severity="info" rounded class="lv-name" />

@@ -330,7 +330,7 @@ onMounted(load);
             </small>
           </div>
           <span v-if="lastChangeAt(x)" class="tk-dot" title="有资料变化"></span>
-          <Button size="small" text rounded icon="pi pi-pencil" :severity="memoOf(x) ? 'secondary' : 'contrast'"
+          <Button size="small" text rounded icon="pi pi-pencil" :severity="memoOf(x) ? 'secondary' : 'info'"
             :title="memoOf(x) ? '备注：' + memoOf(x) : '添加备注'" :aria-label="'编辑备注：' + (x.displayName || x.userId)"
             @click.stop="openMemo(x)" />
           <Button size="small" text rounded :icon="expanded === x.userId ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
