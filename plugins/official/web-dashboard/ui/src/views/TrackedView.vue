@@ -314,39 +314,16 @@ onMounted(load);
         <!-- 2026-09-22：由 button 改为 div[role=button] —— 用户要求「资料/移除」放到本行末尾，而 button 内不能嵌套 button ✗（动态流页同做法）-->
         <!-- 2026-09-22 用户：「先把这一页按好友页的样式统一」✓ —— 行结构与样式对齐 FriendsView 的 .friend-card：
              Avatar + .fc-text（名字 → 备注 → uid/状态 → 最近变化·上次检测），动作区右推在本行末尾 ✓ -->
-        <div class="friend-card" role="button" tabindex="0" @click="toggle(x.userId)" @keydown.enter="toggle(x.userId)">
+        <!-- 2026-09-22 用户：把好友页的整个样式抄过来 ✓；多出来的信息与按钮**先不加** ✓（由用户决定怎么加）
+             因此本卡＝好友页 .friend-card 的等价物：头像 + 名字 + 备注 + 状态，无资料/移除/展开/最近变化 ✓ -->
+        <div class="friend-card" role="button" tabindex="0" @click="openUser(x.userId)" @keydown.enter="openUser(x.userId)">
           <Avatar :image="x.avatarUrl || ''" :label="avatarLabel(x.avatarUrl, x.displayName)" shape="circle" />
           <div class="fc-text">
             <b>{{ x.displayName || x.userId }}</b>
-            <small v-if="memoOf(x)" class="fc-memo" :title="memoOf(x)" @click.stop="openMemo(x)">{{ memoOf(x) }}</small>
-            <small>
-              <span v-if="x.status" class="tk-dot" :style="statusDotStyle(x.location)"></span>
-              <span v-if="x.status">{{ statusText(x.status) }}</span>
-              <span class="mono">{{ x.userId }}</span>
-            </small>
-            <small>
-              <span v-if="lastChangeAt(x)">最近变化 {{ reltime(lastChangeAt(x)) }}</span>
-              <span v-if="lastChangeAt(x) && x.lastRefreshAt">·</span>
-              <span v-if="x.lastRefreshAt">上次检测 {{ fmtRefresh(x.lastRefreshAt) }}</span>
-              <span v-else>尚未检测</span>
-            </small>
+            <small v-if="memoOf(x)" class="fc-memo" :title="memoOf(x)">{{ memoOf(x) }}</small>
+            <small><span class="fc-dot" :style="statusDotStyle(x.location)"></span>{{ statusText(x.status) }}</small>
           </div>
-          <span class="tk-actions" @click.stop>
-            <Button size="small" text rounded icon="pi pi-pencil" :severity="memoOf(x) ? 'info' : 'secondary'"
-              :title="memoOf(x) ? '备注：' + memoOf(x) : '添加备注'" :aria-label="'编辑备注'" @click.stop="openMemo(x)" />
-            <Button size="small" text icon="pi pi-user" label="资料" title="打开资料" :aria-label="'打开 ' + (x.displayName || x.userId) + ' 的资料'" @click.stop="openUser(x.userId)" />
-            <Button size="small" text severity="danger" icon="pi pi-user-minus" label="移除" title="移除追踪" :aria-label="'移除追踪'" @click.stop="removeTracked(x)" />
-            <Button size="small" text rounded :icon="expanded === x.userId ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
-              :aria-label="expanded === x.userId ? '收起变化历史' : '展开变化历史'" @click.stop="toggle(x.userId)" />
-          </span>
         </div>
-        <!-- 2026-09-22 用户澄清：「备注是在下面单开一行」✓ —— 有备注才显示该行（无备注不占位 ✓），点它可编辑 ✓ -->
-        <div v-if="memoOf(x)" class="tk-memoline" role="button" tabindex="0"
-             :title="memoOf(x)" @click.stop="openMemo(x)" @keydown.enter="openMemo(x)">
-          <i class="pi pi-pencil" aria-hidden="true"></i>
-          <span class="tk-memotext">{{ memoOf(x) }}</span>
-        </div>
-
         <!-- 展开：变化时间线 -->
         <div v-if="expanded === x.userId" class="tk-detail">
           <div v-if="loadingChanges === x.userId" class="loading-mini"><ProgressSpinner style="width:22px;height:22px" strokeWidth="4" /></div>
@@ -562,4 +539,112 @@ onMounted(load);
 .fc-memo { display: block; font-size: 10px; color: var(--accent); opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; cursor: pointer; }
 /* 增量：动作区右推（好友页卡内没有动作按钮 ✓）*/
 .tk-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; flex: none; }
+/* ==== 以下样式整块抄自 FriendsView（用户 2026-09-22 要求「整个样式都抄过来」） ==== */
+
+.fv-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.ft-spacer { flex: 1; }
+/* 搜索框与右侧好友栏搜索统一 32px；几何全写死不随字体加载伸缩 */
+.fv-search {
+  max-width: 240px;
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+  line-height: 1;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 12.5px;
+}
+.fg { margin-bottom: 14px; }
+.fg-thumb {
+  width: 22px;
+  height: 22px;
+  object-fit: cover;
+  border-radius: 5px;
+  flex: none;
+}
+.fg-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 5px 8px;
+  margin-bottom: 6px;
+  border-left: 3px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+  transition: background 0.1s, color 0.1s;
+}
+.fg-head:hover { background: var(--surface-2); color: var(--text); }
+.fg-head.accent { color: var(--accent); border-left-color: var(--accent); }
+.fg-arrow { flex: none; font-size: 9px; opacity: 0.7; margin-left: 2px; }
+.fg-count { margin-left: auto; flex: none; font-size: 10.5px; color: var(--text-dim); background: var(--surface-3); padding: 1px 7px; border-radius: 10px; }
+.fg-mixed {
+  font-size: 11px;
+  color: var(--text-dim, #8a93a3);
+  white-space: nowrap;
+}
+.fg-loc {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  padding: 0 7px;
+  border-radius: 8px;
+  flex: 0 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 42%;
+  min-width: 0;
+}
+.fg-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; }
+.friend-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.friend-card:hover { background: var(--surface-2); border-color: var(--border); }
+.fc-text { min-width: 0; }
+.fc-text b { display: block; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-text small { color: var(--text-dim); font-size: 11px; display: flex; align-items: center; gap: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-memo { display: block; font-size: 10px; color: var(--accent); opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.fc-loc { display: block; font-size: 10px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; cursor: pointer; }
+.fc-loc:hover { color: var(--accent); }
+.fc-loc i { font-size: 8px; }
+.fc-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; transform: translateY(1px); }
+.fc-plat {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1;
+  cursor: help;
+}
+.fc-plat:hover { color: var(--text); }
+@media (max-width: 899px) {
+  .fg-body { grid-template-columns: 1fr 1fr; }
+  /* 移动端：tab 与搜索框换行，搜索框独占一行全宽（此前被 5 个 tab 挤压到 74px 不可用） */
+  .fv-toolbar { flex-wrap: wrap; row-gap: 8px; }
+  .fv-toolbar .p-selectbutton, .fv-toolbar .p-selectbutton > * { max-width: 100%; }
+  .fv-search { max-width: none; flex: 1 1 100%; order: 3; }
+  /* C1/C2：触屏目标加大 + 字号提升 */
+  .fg-head { padding: 8px 9px; }
+  .fg-head > span:nth-child(2) { font-size: 12.5px; }
+  .friend-card { padding: 10px 11px; }
+  .fc-text b { font-size: 13px; }
+  .fc-text small { font-size: 11.5px; }
+}
+@media (max-width: 560px) {
+  .fg-body { grid-template-columns: 1fr; }
+}
+
 </style>
