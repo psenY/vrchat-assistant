@@ -39,6 +39,7 @@ export const store = reactive({
   eventsRange: { min: null, max: null },  // 动态数据时间范围（日历筛选可选范围）
   feedLoading: false,
   feedLoadingMore: false,
+  feedMoreError: '',        // 「加载更多」失败原因（2026-09-22：502 曾被谎报成「已加载全部动态」）
   loadError: '',            // 首屏加载失败原因（2026-09-22 用户：失败不能静默显示成「暂无动态」）
 
   friends: [],
@@ -430,6 +431,7 @@ export async function resetFeed() {
 export async function loadMoreFeed({ target = 50, countMatch = null } = {}) {
   if (store.feedLoadingMore) return;
   store.feedLoadingMore = true;
+  store.feedMoreError = '';
   try {
     while (store.feedHasMore) {
       const offset = store.feedEvents.length;
@@ -441,14 +443,17 @@ export async function loadMoreFeed({ target = 50, countMatch = null } = {}) {
         break;
       }
       store.feedEvents = [...store.feedEvents, ...more];
+      store.feedMoreError = '';
       store.feedHasMore = more.length >= 50;
       // 匹配数达标（或没有匹配判定=普通分页一次一批）→ 停；否则继续向前加载
       if (!countMatch) break;
       if (countMatch() >= target) break;
       if (!store.feedHasMore) break;
     }
-  } catch {
-    store.feedHasMore = false;
+  } catch (err) {
+    // 2026-09-22 用户实测：翻页遇 502 时原实现把 feedHasMore 置 false ⇒ 界面谎报「已加载全部动态」且无重试 ✗
+    // 正确语义：失败 ≠ 数据到底。保留 feedHasMore（按钮/继续加载仍在），只记原因让 UI 显示「重试」。
+    store.feedMoreError = (err && err.message) ? err.message : '网络或服务不可达';
   } finally {
     store.feedLoadingMore = false;
   }

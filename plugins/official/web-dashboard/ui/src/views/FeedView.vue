@@ -718,6 +718,11 @@ onUnmounted(() => {
              修正为三态：未达上限=加载更多；达上限但仍有余量=继续加载（显式点击，保护客户端渲染）。 -->
         <Button v-if="store.feedHasMore && store.feedEvents.length < feedHardCap" :label="store.feedLoadingMore ? '加载中…' : '加载更多'" text size="small" icon="pi pi-angle-down" @click="loadMoreFeed()" />
         <Button v-else-if="store.feedHasMore" :label="store.feedLoadingMore ? '加载中…' : `继续加载（已显示 ${store.feedEvents.length} 条 · 达展示上限）`" text size="small" icon="pi pi-angle-down" severity="secondary" @click="loadMoreFeed()" />
+        <!-- 2026-09-22：失败必须给重试入口，且不得谎报「已加载全部」（用户实测 502 时正是被谎报） -->
+        <div v-else-if="store.feedMoreError" class="feed-more-err">
+          <span>加载更多失败：{{ store.feedMoreError }}</span>
+          <Button label="重试" size="small" text icon="pi pi-refresh" @click="loadMoreFeed()" />
+        </div>
         <span v-else-if="store.feedEvents.length" class="feed-end">— 已加载全部动态 —</span>
         <!-- 哨兵始终渲染（条件渲染会导致 onMounted 拿不到元素、observer 失效） -->
         <div id="feed-sentinel" class="feed-sentinel"></div>
@@ -986,6 +991,7 @@ onUnmounted(() => {
 .noti-read-wrap.noti-msg-link .noti-msg-inline { color: var(--accent-2); }
 
 .feed-more { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0; }
+.feed-more-err { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px; color: var(--text-dim); font-size: 12.5px; }
 .feed-end { font-size: 11px; color: var(--text-dim); opacity: 0.7; }
 
 /* B3 展开详情 */
