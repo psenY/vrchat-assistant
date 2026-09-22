@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { store, setView, openUser, openWorld, openPreview, loadMoreFeed, copyText, openGroup, resetFeed } from '../store.js';
+import { store, setView, openUser, openWorld, openPreview, loadMoreFeed, copyText, openGroup, resetFeed, load } from '../store.js';
 import { time, date, locLabel, statusLabels, trustColor, instanceLabel, avatarLabel, specialLocationLabel } from '../utils.js';
 import { post } from '../api.js';
 import { toast } from '../toast.js';
@@ -293,6 +293,7 @@ const feedRows = computed(() => {
 
 /* ── 自动加载 ── */
 const FEED_TARGET = 50;
+function retryLoad() { load(); }   // 失败态的重试入口
 // 性能保护（无虚拟滚动）：移动端 DOM 行数上限收紧（中端机挂 400 个复杂行滚动掉帧），
 // 桌面 400。到上限后停补并隐藏"加载更多"，用户用筛选/日期缩小范围查看更早内容
 const isMobileDev = () => (typeof window !== 'undefined' && window.innerWidth < 900);
@@ -420,6 +421,13 @@ onUnmounted(() => {
     <div v-if="store.feedLoading && !store.feedEvents.length" class="feed-loading">
       <ProgressSpinner style="width: 34px; height: 34px" strokeWidth="3" />
       <div class="text-dim">正在加载动态…</div>
+    </div>
+    <!-- 2026-09-22：加载失败必须与「暂无动态」区分开（否则用户以为真的没有数据） -->
+    <div v-if="store.loadError" class="empty">
+      <i class="pi pi-exclamation-triangle empty-icon" aria-hidden="true"></i>
+      <template>加载失败：{{ store.loadError }}</template>
+      <small>多半是网络/入口（公网反代）问题——可点下方重试；若持续失败请查服务状态</small>
+      <div style="margin-top:10px"><Button label="重试" size="small" icon="pi pi-refresh" @click="retryLoad()" /></div>
     </div>
     <div v-else-if="!rows.length" class="empty">
       <i class="pi pi-bolt empty-icon" aria-hidden="true"></i>

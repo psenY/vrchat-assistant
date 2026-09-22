@@ -1,6 +1,7 @@
 // 响应式数据层（移植旧 core.js 模式：快/慢路径拆分 + 30s 轮询 + SSE + hash 视图同步）
 import { reactive } from 'vue';
 import { get, post, openSse } from './api.js';
+import { toast } from './toast.js';
 
 // 兼容 events 接口的几种历史形状，避免包一层对象后前端当数组用 → 动态整页空
 function parseEvents(d) {
@@ -38,6 +39,7 @@ export const store = reactive({
   eventsRange: { min: null, max: null },  // 动态数据时间范围（日历筛选可选范围）
   feedLoading: false,
   feedLoadingMore: false,
+  loadError: '',            // 首屏加载失败原因（2026-09-22 用户：失败不能静默显示成「暂无动态」）
 
   friends: [],
   friendsSearch: '',
@@ -278,6 +280,7 @@ function syncRightGroups() {
 // 已有数据时静默刷新：不再置 feedLoading（避免标题行"同步中…"Tag 闪烁），保持旧列表原地更新
 export async function load(quiet = false) {
   const silent = quiet || store.feedEvents.length > 0;
+  store.loadError = '';   // 每次加载先清错误，失败时再置
   if (!silent) store.feedLoading = true;
   try {
     // 2026-09-22 首屏合并：公网反代下每个请求要付 1.4-3s 往返，第一波 4 个接口并为 1 次。
@@ -336,7 +339,11 @@ export async function load(quiet = false) {
       syncRightGroups();
     });
   } catch (err) {
-    console.warn('Dashboard load error:', err);
+    console.warn('Dashboard load error:', err);    // 2026-09-22 用户报障：请求失败时前端不提示、动态页直接显示「暂无动态」✗ ⇒ 记下原因并在非静默刷新时弹一次错误
+    if (!silent) {
+      store.loadError = (err && err.message) ? err.message : '网络或服务不可达';
+      toast('加载失败：' + store.loadError + '（点动态页的「重试」可重发）', 'error');
+    }
   } finally {
     store.feedLoading = false;
   }
