@@ -13,7 +13,7 @@
  */
 
 const CONFIG_KEY = 'dynamic_status';
-const DEFAULT_TEMPLATE = '在线 {online} 人';
+const DEFAULT_TEMPLATE = '在线 {total} 人';
 const MIN_INTERVAL_MS = 65_000;
 const MAX_DESC_LEN = 64; // VRChat statusDescription 长度上限（保守取 64）
 
@@ -69,7 +69,7 @@ export class DynamicStatusSync {
   /** 渲染模板：{online} 与 {total} 均为总在线（游戏内+网页）；截断按 Unicode 码点（review #166 💡：UTF-16 slice 会把 emoji 切半成替换符） */
   render(text, online, counts = null) {
     // 2026-09-22 用户要求：在线数拆成三个可分别引用（自己组合文案）——
-    //   {online} 与 {total} 同义（均为总在线；用户 2026-09-22 定：不再受 env 开关影响，开关只影响 MCP 计数）；
+    //   {online} 保留为**兼容别名**（不再出现在界面/文档里）：老模板写了它仍能渲染，等同 {total} ✓；
     //   {total}=游戏内+网页、{webOnline}=网页/App、{gameOnline}=游戏内（只留英文 ✓）。
     const c = counts || {};
     const total = Number.isFinite(c.total) ? c.total : online;

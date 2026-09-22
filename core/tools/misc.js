@@ -686,7 +686,7 @@ export const tools = [
   },
   {
     "name": "get_dynamic_status",
-    "description": "[query] 查询动态状态（按在线好友数量自动更新自定义状态）引擎配置与运行状态：enabled（开关,默认关闭）、template（文本模板,{online}（= {total}，总在线）/ {total}（总在线）/ {webOnline}（网页/App 在线）/ {gameOnline}（游戏内在线）占位符替换为对应计数）、onlineNow（当前在线好友数）、lastSent/lastAt（最近一次实际提交的文本与时间）。",
+    "description": "[query] 查询动态状态（按在线好友数量自动更新自定义状态）引擎配置与运行状态：enabled（开关,默认关闭）、template（文本模板,{total}（总在线）/ {webOnline}（网页/App 在线）/ {gameOnline}（游戏内在线）占位符替换为对应计数（旧模板的 {online} 仍兼容，等同 {total}））、onlineNow（当前在线好友数）、lastSent/lastAt（最近一次实际提交的文本与时间）。",
     "inputSchema": { "type": "object", "properties": {} },
     handler: async (args) => handleGetDynamicStatus(args)
   },
