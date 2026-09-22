@@ -49,9 +49,9 @@ export async function verifyToken(t, timeout = 20000) {
 
 // 令牌传输方式（issue #217）：普通请求一律走 Authorization 头——query 形态会进访问日志 /
 // 反向代理日志 / 浏览器历史。唯一例外是 EventSource（SSE），它无法自定义请求头，故下面这个
-// apiUrl() 只允许用于 openSse()（见 docs/DASHBOARD.md「访问」一节）。
+// sseUrl() 只允许用于 openSse()（见 docs/DASHBOARD.md「访问」一节）。
 export const authHeaders = () => (getToken() ? { Authorization: 'Bearer ' + getToken() } : {});
-export const apiUrl = (p) => (getToken() ? `${p}${p.includes('?') ? '&' : '?'}token=${encodeURIComponent(getToken())}` : p);
+export const sseUrl = (p) => (getToken() ? `${p}${p.includes('?') ? '&' : '?'}token=${encodeURIComponent(getToken())}` : p);
 
 // 统一错误信息：401 = 会话过期/服务未就绪（容器重启后 TOTP 自动登录自愈，稍等刷新即可）
 const errMsg = (r) => (r.status === 401
@@ -95,7 +95,7 @@ export function invalidateCache(p) {
 
 export function openSse(onEvent, onStatus) {
   try {
-    const es = new EventSource(apiUrl('/api/dashboard/stream'));
+    const es = new EventSource(sseUrl('/api/dashboard/stream'));
     es.onopen = () => onStatus && onStatus('connected');
     es.onmessage = (m) => {
       try {
@@ -123,5 +123,5 @@ export function imgUrl(url) {
   } catch {
     return url;
   }
-  return `/api/dashboard/image-proxy?url=${encodeURIComponent(url)}&token=${encodeURIComponent(getToken())}`;
+  return `/api/dashboard/image-proxy?url=${encodeURIComponent(url)}`;   // 不带 token：auth-guard 对 image-proxy 无条件豁免（GET），服务端该路由也不校验令牌（issue #217 审核 ⚠️）
 }
