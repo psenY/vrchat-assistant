@@ -129,6 +129,9 @@ onMounted(async () => {
     loginView.value = true;
   } finally {
     authChecking.value = false;
+    // 2026-09-22 ego 实测：登录后页面能渲染但 **api:0** ⇒ 一个数据请求都没发（「暂无动态」）✗，
+    // 根因是 startDashboard() 只在 verifyToken 成功那条分支被调用 ✗，探针成功路径没调 ✓。此处兜底统一启动 ✓（幂等）。
+    if (!loginView.value) startDashboard();
   }
 });
 function onAuth401() { loginView.value = true; }

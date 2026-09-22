@@ -1,6 +1,6 @@
 // 响应式数据层（移植旧 core.js 模式：快/慢路径拆分 + 30s 轮询 + SSE + hash 视图同步）
 import { reactive } from 'vue';
-import { get, post, openSse } from './api.js';
+import { get, post, openSse, getToken } from './api.js';   // getToken：启动守卫用（此前漏导入 ⇒ ReferenceError ⇒ authed 恒 false ⇒ 一个请求都不发 ✗）
 import { toast } from './toast.js';
 
 // 兼容 events 接口的几种历史形状，避免包一层对象后前端当数组用 → 动态整页空
@@ -730,28 +730,27 @@ function initKeyboard() {
   });
 }
 
+let __dashStarted = false;   // 幂等：App 的挂载路径与 verifyToken 路径都可能调用本函数 ✓
 export function startDashboard() {
-  initFromHash();
-  // 2026-09-22 用户截图实证：登录页（无令牌）也在打 bootstrap/watchlist/tracked/count/公告 等全部接口 ✗
-  // ⇒ 无令牌时只做纯本地初始化（hash/SSE/键盘/视口），不发任何 dashboard 请求、不起轮询 ✓。
-  // 登录成功后由 App 在挂载完成时调用本函数（见 App.vue 的挂载逻辑），行为与之前一致 ✓。
+  if (__dashStarted) return;   // 幂等：App 挂载路径与 verifyToken 路径都可能调用 ✓
+  __dashStarted = true;
+  // 2026-09-22 ego 实测：登录后页面能渲染但一个请求都不发（api:0）✗ ——
+  // 根因＝本函数原为一条直线，任何一步抛错（实测首步 initFromHash 即抛）都会让后面的数据加载全部不执行 ✓。
+  // 改为逐步独立兜底：每步失败只记一行 warn，绝不阻断后续（尤其是数据加载）✓。
+  const step = (name, fn) => { try { fn(); } catch (e) { console.warn('[dashboard] 启动步骤失败 ' + name + ':', e); } };
   const authed = (() => { try { return !!getToken(); } catch { return false; } })();
+  step('initFromHash', () => initFromHash());
   if (authed) {
-    load();
-    loadWatchlist();
-    loadTracked();
-    loadNotifCount();
-    loadAnnNewFlag();
+  step('load', () => load());
+    step('loadWatchlist', () => loadWatchlist());
+    step('loadTracked', () => loadTracked());
+    step('loadNotifCount', () => loadNotifCount());
+    step('loadAnnNewFlag', () => loadAnnNewFlag());
+    step('startSse', () => startSse());
+    step('poll', () => setInterval(() => load(true), 120000));
   }
-  try { store.notifyEnabled = localStorage.getItem('vrc_notify') === '1'; } catch { /* 隐私模式 */ }
-  // 2026-09-22 用户截图实证：登录页仍有 stream(401) 与 overview(401) ✗
-  // ——因为 SSE 没进守卫，而 SSE 一连上就会触发 load() ⇒ 连带 overview 401 ✓。
-  // 故把 startSse() 与数据加载同处守卫内 ✓。
-  if (authed) startSse();
-  trackViewport();
-  initKeyboard();
-  bindHashChange();
-  if (authed) setInterval(() => load(true), 120000);   // 未登录不轮询 ✓  // 全量校准：120s 一次（SSE 增量主导，全量只防丢帧/断线自愈）
-  // 右侧栏"我自己"状态/位置：由 SSE user-update/user-location 事件直接更新 me + refreshMeFresh() 节流拉取，
-  // 不再需要 10s 定时全量拉 /me（已移除，2026-09-01 SSE 增量改造）
+  step('notifyEnabled', () => { store.notifyEnabled = localStorage.getItem('vrc_notify') === '1'; });
+  step('trackViewport', () => trackViewport());
+  step('initKeyboard', () => initKeyboard());
+  step('bindHashChange', () => bindHashChange());
 }
