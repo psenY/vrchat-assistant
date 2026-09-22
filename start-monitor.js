@@ -376,8 +376,14 @@ async function _refreshTrackedNonFriends() {
       const loc = userObj.location || '';
       if (av || dn || st || loc) {
         storage.run(
-          `UPDATE tracked_non_friends SET avatar_image_url=$a, display_name=$d, status=$s, status_description=$sd, location=$l, last_refresh_at=datetime('now') WHERE user_id=$u`,
-          { $a: av, $d: dn, $s: st, $sd: stDesc, $l: loc, $u: u.user_id }
+          `UPDATE tracked_non_friends SET avatar_image_url=$a, display_name=$d, status=$s, status_description=$sd, location=$l, last_activity=$la, platform=$p, world_id=$w, last_refresh_at=datetime('now') WHERE user_id=$u`,
+          { $a: av, $d: dn, $s: st, $sd: stDesc, $l: loc,
+            // 2026-09-22 新增：用户实测确认这些字段对非好友也返回 ✓（探针打印字段名验证 ✓）
+            $la: String(userObj.last_activity || ''),
+            // 2026-09-22 实测：离线时 userObj.platform 是字符串 'offline' ✗（不是空 ✗）⇒ 会挡住兜底；
+            // 故先剔除 'offline'，再用 last_platform（实测有值：standalonewindows ✓）
+            $p: String((userObj.platform && userObj.platform !== 'offline' ? userObj.platform : '') || userObj.last_platform || ''),
+            $w: String(userObj.worldId || ''), $u: u.user_id }
         );
       }
       // location/上下线变化检测（#146）：轮询 1h 低频，offline/offline:offline/traveling 离线态微动与转场不记录

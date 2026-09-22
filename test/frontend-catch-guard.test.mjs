@@ -26,6 +26,7 @@ const BASELINE = [
   ['src/App.vue', 'loginView.value = true;', '语义就是"回到登录页"，不是数据结论'],
   ['src/api.js', 'return null;', 'API 包装层：把失败返回给调用方由上层决定（调用方已分别处理）'],
   ['src/store.js', 'return null;', 'readCache 的 catch：缓存不可用 ⇒ 当作没有缓存（语义正确）'],
+  ['src/store.js', 'return false;', '启动守卫里的 authed 探测：读不到令牌即视为未认证（fail-closed 的安全方向 ✓），且该值只用于"是否启动数据加载"、不冒充任何数据 ✓'],
   ['src/views/BoothView.vue', "if (mySeq === seq) { results.value = []; toast('搜索失败：' + (e.message || e), 'error'); }", '新查询清空 + toast 报错'],
   ['src/views/SearchView.vue', "if (mySeq === seq) { results.value = []; toast('搜索失败：' + (e.message || e), 'error'); }", '新查询清空 + toast 报错'],
   ['src/views/RecommendView.vue', "if (mySeq === seq) { data.value = null; toast('加载推荐失败：' + (e.message || e), 'error'); }", '新查询清空 + toast 报错'],
