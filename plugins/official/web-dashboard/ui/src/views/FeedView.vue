@@ -26,6 +26,11 @@ function sourceLabel(s) {
 }
 
 /* ── 类型定义（对齐 VRCX Feed filters：GPS/Online/Offline/Status/Avatar/Bio）── */
+// 位置行的「从哪来 / 到哪去」（用户 2026-09-22 定：显示「状态 → 状态」）——
+// 左侧优先用**状态中文名**（私人房间/传送中…），否则回退世界名；例：private→private 渲染「私人房间 → 私人房间」。
+function prevLabelOf(e) { return specialLocationLabel(e.previousLocation) || e.previousWorldName || ''; }
+function curIsWorld(e) { return String(e.worldId || '').startsWith('wrld_'); }
+
 const filterOptions = [
   { value: 'all', label: '所有' },
   { value: 'location', label: '位置变动' },
@@ -452,20 +457,20 @@ onUnmounted(() => {
               <span class="dim">传送中</span>
             </template>
             <template v-else>
-            <!-- 仅当**目的地是真世界**时才显示「从哪来 →」：私人房/好友房/传送中这些非世界形态，
-                 左侧挂着上一个世界名会造成误导（用户 2026-09-22：看起来像"他从 Blume 去了私人房"，
-                 而实际是"他进了私人房"）-->
-            <template v-if="x.previousWorldName && x.previousWorldName !== x.worldName && String(x.worldId || '').startsWith('wrld_')">
-              <img v-if="x.previousWorldImageUrl" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
-              <span v-if="x.previousWorldId" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
-              <span v-else class="dim">{{ x.previousWorldName }}</span>
+
+            <!-- 用户 2026-09-22 定：位置行显示「状态 → 状态」——私人房之间切换就该是「私人房间 → 私人房间」；
+                 左侧取**上一条真实位置**（后端已跳过 traveling/offline），非世界形态用中文名、且即使两边相同也显示箭头。 -->
+            <template v-if="prevLabelOf(x) && (curIsWorld(x) ? prevLabelOf(x) !== x.worldName : true)">
+              <img v-if="x.previousWorldImageUrl && curIsWorld(x)" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
+              <span v-if="x.previousWorldId && curIsWorld(x)" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
+              <span v-else class="dim">{{ prevLabelOf(x) }}</span>
               <span class="arr">→</span>
             </template>
             <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
             <span v-if="x.worldName" class="world-link" @click="openWorld(x.worldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.worldId)">{{ x.worldName }}</span>
             <span v-else-if="x.location" class="dim">{{ specialLocationLabel(x.location) || locLabel(x.location) || x.location }}</span>
             <span v-if="x.instanceType || x.region || x.instanceId" class="inst mono">{{ instanceLabel(x.instanceType) }}{{ x.region ? ' · ' + x.region.toUpperCase() : '' }}{{ x.instanceId ? ' · ' + x.instanceId : '' }}</span>
-            <span v-if="x.travelingToLocation" class="dim">传送中</span>
+            <!-- 到达行不再挂「传送中」尾巴（用户 2026-09-22：传送中已有独立行，这里挂着会读成"状态是传送中"） -->
             </template>
           </template>
 

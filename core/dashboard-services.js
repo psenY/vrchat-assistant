@@ -278,7 +278,7 @@ export function registerDashboardServices(loader, ctx) {
     // 「从哪来」：向前回溯找上一个**真实世界**位置。
     // VRChat 换房前几乎总先推一条 traveling（也是 friend-location 类型），若只取上一条事件，
     // 到达行的 prev 几乎都是 traveling（无 world 对象，名字为空）→「从哪」永远显示不出来（用户反馈）。
-    // 规则：回溯最多 25 条，跳过 traveling/offline 行，取第一条带世界的位置；
+    // 规则（2026-09-22 用户定）：回溯最多 25 条，跳过 traveling/offline，取**第一条真实位置**（含私人房等无世界名的形态）；
     // 同世界重进的行（prev==当前世界）由前端 previousWorldName !== worldName 条件自然隐藏。
     // 兼容迁移数据（顶层 worldName）与实时数据（world 对象）两种字段形态。
     const previousLocationOf = (userId, eventId) => {
@@ -296,7 +296,10 @@ export function registerDashboardServices(loader, ctx) {
           if (!loc || loc === 'traveling' || loc === 'offline' || loc === 'offline:offline') continue;
           const worldId = cj.world?.id || (loc.startsWith('wrld_') ? loc.split(':')[0] : '');
           const worldName = cj.world?.name || cj.worldName || '';
-          if (!worldName && !worldId) continue;
+          // 用户 2026-09-22 定：位置行要显示**状态到状态**（如「私人房间 → 私人房间」）——
+          // 因此「上一条非 traveling/offline 的位置」就是答案，哪怕它是私人房这类**没有世界名**的形态；
+          // 旧写法在这里 continue 掉没有世界名的行，导致一路回溯到上一个真世界 → 显示成「<旧世界名> → 私人房间」✗。
+          // 只有 location 完全为空的行才跳过。
           prev = {
             location: loc,
             worldName,
