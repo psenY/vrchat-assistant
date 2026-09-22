@@ -218,7 +218,8 @@ CREATE TABLE IF NOT EXISTS tracked_non_friends (
   memo TEXT DEFAULT '',
   last_activity TEXT DEFAULT '',
   platform TEXT DEFAULT '',
-  world_id TEXT DEFAULT ''
+  world_id TEXT DEFAULT '',
+  trust_level TEXT DEFAULT ''
 );
 
 -- 服务运维日志（认证/连接生命周期）：独立于 events（动态流语义），保留最近 500 条（写入即裁剪）

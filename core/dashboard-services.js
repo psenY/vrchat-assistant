@@ -860,7 +860,7 @@ export function registerDashboardServices(loader, ctx) {
                   WHERE e.user_id = t.user_id AND e.type = 'friend-update' AND e.source = 'poll'
                   ORDER BY e.id DESC LIMIT 1) AS lastChangeAt,
                   -- 2026-09-22 新增三列（不加别名 ⇒ DTO 用 r.last_activity / r.platform / r.world_id 映射为驼峰 ✓）
-                  t.last_activity, t.platform, t.world_id
+                  t.last_activity, t.platform, t.world_id, t.trust_level
          FROM tracked_non_friends t
          -- 权威源兜底(#164 补漏):列表只含"当前非好友"。friend-add 联动写 removed_at 是事件驱动,
          -- 事件丢失(停机/断连窗口内加好友)会残留;LEFT JOIN friends 排除,若日后解除好友自动回列。
@@ -878,6 +878,7 @@ export function registerDashboardServices(loader, ctx) {
       return { tracked: rows.filter((r) => r.userId !== selfId).map((r) => ({ ...r, avatarUrl: avatarThumb(r.avatarUrl) || lastKnownAvatarUrl(r.userId) || '',
         // 2026-09-22：新列以**驼峰**暴露给前端（前端统一用 camelCase ✓；此前 { ...r } 透传的是下划线式 ✗）
         lastActivity: r.last_activity || '', platform: r.platform || '', worldId: r.world_id || '',
+        trustLevel: r.trust_level || '',   // 2026-09-22：非好友信任等级（来自 tags ✓）
         worldName: worldNameOf(r.world_id) })) };
     } catch {
       return { tracked: [] };

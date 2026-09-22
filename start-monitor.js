@@ -10,7 +10,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import net from 'node:net';
-import { refreshFriendList } from './core/friend-refresh.js';
+import { refreshFriendList, trustFromTags } from './core/friend-refresh.js';   // trustFromTags：非好友信任等级（tags → 名称，与好友页同一映射 ✓）
 
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
 import { isWebPresence } from './core/event-pipeline.js';
@@ -363,6 +363,8 @@ async function _refreshTrackedNonFriends() {
       // 而 VRChat 会给 iconUrl（活数据 ✓）⇒ 补进兜底链，避免 av 恒为空 ✓
       const av = userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl || userObj.userIcon || userObj.iconUrl || '';
       const dn = userObj.displayName || u.display_name || '';
+      // 2026-09-22：非好友也能拿信任等级——实测 /users/{id} 的 tags 有值 ✓（VRCX 同款 computeTrustLevel 口径 ✓）
+      const tl = (() => { try { return trustFromTags(Array.isArray(userObj.tags) ? userObj.tags : []) || ''; } catch { return ''; } })();
       // 头像变化检测：按 file id 归一化比较（防 currentAvatarImageUrl vs Thumbnail 兜底链或 URL 版本号 /1/ vs /3/ 波动误报）
       const prevAv = u.avatar_image_url || '';
       // 2026-09-22 issue #225（评审提级 ⚠️）：本函数是**变更检测归一化** —— 旧正则对 image 形态两侧都返回 '' ✗
@@ -387,9 +389,11 @@ async function _refreshTrackedNonFriends() {
         try {
 
           storage.run(
-            `UPDATE tracked_non_friends SET avatar_image_url=$a, display_name=$d, status=$s, status_description=$sd, location=$l, last_activity=$la, platform=$p, world_id=$w, last_refresh_at=datetime('now') WHERE user_id=$u`,
+            `UPDATE tracked_non_friends SET avatar_image_url=$a, display_name=$d, status=$s, status_description=$sd, location=$l, last_activity=$la, platform=$p, world_id=$w, trust_level=$tl, last_refresh_at=datetime('now') WHERE user_id=$u`,
             // 2026-09-22：av 为空时**不覆盖**已有头像（非好友 av 常空 ⇒ 否则抹掉历史头像 ✗ 已实测发生）
             { $a: av || (u.avatar_image_url || ''), $d: dn, $s: st, $sd: stDesc, $l: loc,
+            // 2026-09-22：信任等级（空则不覆盖旧值 ✓ 同头像规则）
+            $tl: tl || (u.trust_level || ''),
               // 2026-09-22 新增：用户实测确认这些字段对非好友也返回 ✓（探针打印字段名验证 ✓）
               $la: String(userObj.last_activity || ''),
               // 2026-09-22 实测：离线时 userObj.platform 是字符串 'offline' ✗（不是空 ✗）⇒ 会挡住兜底；
