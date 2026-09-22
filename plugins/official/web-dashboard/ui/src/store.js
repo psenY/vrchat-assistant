@@ -313,7 +313,19 @@ export function hydrateFromCache() {
   if (!c) return false;
   let hit = false;
   if (Array.isArray(c.friends) && c.friends.length && !store.friends.length) { store.friends = c.friends; syncRightGroups(); hit = true; }
-  if (Array.isArray(c.feedEvents) && c.feedEvents.length && !store.feedEvents.length) { store.feedEvents = c.feedEvents; store.feedTotal = c.feedTotal || c.feedEvents.length; hit = true; }
+  if (Array.isArray(c.feedEvents) && c.feedEvents.length && !store.feedEvents.length) {
+    // 2026-09-22 用户报障「左侧整块黑」：此处此前**直接赋值缓存数组** ✗，未经过 parseEvents 归一化 ——
+    // 缓存形状与接口不一致（旧版本缓存 / 字段缺失）时，动态页渲染会抛错 ⇒ 整块不挂载（黑）✗✓。
+    // 现改为走与接口**完全相同**的归一化 + try/catch 兜底 ✓。
+    try {
+      const norm = parseEvents({ events: c.feedEvents, total: c.feedTotal || 0 });
+      if (Array.isArray(norm.events) && norm.events.length) {
+        store.feedEvents = norm.events;
+        store.feedTotal = norm.total || norm.events.length;
+        hit = true;
+      }
+    } catch { /* 缓存形状不可用 ⇒ 跳过 hydrate，等接口 ✓ */ }
+  }
   if (c.overview && !store.overview) { store.overview = c.overview; hit = true; }
   if (c.eventsRange && c.eventsRange.min) { store.eventsRange = c.eventsRange; hit = true; }
   if (hit) console.info('[dashboard] 首屏使用本地缓存渲染（' + (cacheFresh(c) ? '新鲜' : '已过期') + '），随后静默刷新');

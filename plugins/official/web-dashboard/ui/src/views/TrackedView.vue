@@ -318,7 +318,6 @@ onMounted(load);
             <b class="tk-name">
               <span v-if="x.status" class="tk-dot" :style="statusDotStyle(x.location)" :title="'当前状态：' + statusText(x.status)"></span>
               {{ x.displayName || x.userId }}
-              <Tag v-if="memoOf(x)" class="tk-memotag" :title="memoOf(x)">{{ memoOf(x) }}</Tag>
             </b>
             <small class="tk-sub">
               <span class="tk-statusline">
@@ -343,6 +342,13 @@ onMounted(load);
           <Button size="small" text icon="pi pi-user" label="资料" title="打开资料" :aria-label="'打开 ' + (x.displayName || x.userId) + ' 的资料'" @click="openUser(x.userId)" />
           <Button size="small" text severity="danger" icon="pi pi-user-minus" label="移除" title="移除追踪" :aria-label="'移除追踪 ' + (x.displayName || x.userId)" @click="removeTracked(x)" />
           </span>
+
+        <!-- 2026-09-22 用户澄清：「备注是在下面单开一行」✓ —— 有备注才显示该行（无备注不占位 ✓），点它可编辑 ✓ -->
+        <div v-if="memoOf(x)" class="tk-memoline" role="button" tabindex="0"
+             :title="memoOf(x)" @click.stop="openMemo(x)" @keydown.enter="openMemo(x)">
+          <i class="pi pi-pencil" aria-hidden="true"></i>
+          <span class="tk-memotext">{{ memoOf(x) }}</span>
+        </div>
 
         <!-- 展开：变化时间线 -->
         <div v-if="expanded === x.userId" class="tk-detail">
@@ -539,4 +545,13 @@ onMounted(load);
 .tk-uid { overflow: hidden; text-overflow: ellipsis; max-width: 210px; }
 .tk-sep { color: var(--text-dim); }
 .tk-row .tk-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; flex: none; }
+
+/* ── tk-memoline-2026-09-22（用户：「备注是在下面单开一行」）──────────────────
+   备注独占一行：淡底 + 细边框 + 铅笔小图标；可点击编辑；长备注换行不撑破卡片 ✓ */
+.tk-memoline { display: flex; align-items: flex-start; gap: 6px; margin-top: 6px;
+  padding: 4px 8px; border-radius: 6px; background: var(--surface-2);
+  border: 1px solid var(--border-soft); color: var(--text-dim); font-size: 12px; cursor: pointer; }
+.tk-memoline:hover { border-color: var(--border); color: var(--text); }
+.tk-memoline > i { font-size: 11px; margin-top: 2px; }
+.tk-memotext { white-space: pre-wrap; word-break: break-word; }
 </style>
