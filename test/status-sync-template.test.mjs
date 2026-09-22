@@ -16,7 +16,7 @@ function makeSync() {
 test('三计数占位符各自替换（只留英文，用户 2026-09-22 定）', () => {
   const s = makeSync();
   const counts = { total: 7, web: 2, game: 5 };
-  assert.equal(s.render('总{online}人', 3, counts), '总3人', '{online} 沿用开关口径');
+  assert.equal(s.render('总{online}人', 3, counts), '总7人', '{online} 现与 {total} 同义（总在线）');
   assert.equal(s.render('总{total}/Web{webOnline}/游戏{gameOnline}', 3, counts), '总7/Web2/游戏5');
 });
 

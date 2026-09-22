@@ -66,10 +66,10 @@ export class DynamicStatusSync {
     } catch { return null; }
   }
 
-  /** 渲染模板：{online} → 当前在线好友数；截断按 Unicode 码点（review #166 💡：UTF-16 slice 会把 emoji 切半成替换符） */
+  /** 渲染模板：{online} 与 {total} 均为总在线（游戏内+网页）；截断按 Unicode 码点（review #166 💡：UTF-16 slice 会把 emoji 切半成替换符） */
   render(text, online, counts = null) {
     // 2026-09-22 用户要求：在线数拆成三个可分别引用（自己组合文案）——
-    //   {online} 沿用 VRC_MONITOR_ONLINE_INCLUDE_WEB 口径（语义不变）；
+    //   {online} 与 {total} 同义（均为总在线；用户 2026-09-22 定：不再受 env 开关影响，开关只影响 MCP 计数）；
     //   {total}=游戏内+网页、{webOnline}=网页/App、{gameOnline}=游戏内（只留英文 ✓）。
     const c = counts || {};
     const total = Number.isFinite(c.total) ? c.total : online;
@@ -77,7 +77,7 @@ export class DynamicStatusSync {
     const game = Number.isFinite(c.game) ? c.game : total;
     let rendered = String(text);
     // 用户 2026-09-22：占位符**只留英文**（中文别名去掉）
-    for (const [k, v] of [['{online}', online], ['{total}', total],
+    for (const [k, v] of [['{online}', total], ['{total}', total],
       ['{webOnline}', web], ['{gameOnline}', game]]) {
       rendered = rendered.replaceAll(k, String(v));
     }
