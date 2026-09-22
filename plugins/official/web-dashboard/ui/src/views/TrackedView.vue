@@ -336,12 +336,12 @@ onMounted(load);
             @click.stop="openMemo(x)" />
           <Button size="small" text rounded :icon="expanded === x.userId ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
             :aria-label="expanded === x.userId ? '收起变化历史' : '展开变化历史'" @click.stop="toggle(x.userId)" />
-        </div>
-
+          <!-- 2026-09-22：动作按钮在本行末尾（此前被提前的 </div> 关在行外、变成另起一行 ✗）-->
           <span class="tk-actions" @click.stop>
           <Button size="small" text icon="pi pi-user" label="资料" title="打开资料" :aria-label="'打开 ' + (x.displayName || x.userId) + ' 的资料'" @click="openUser(x.userId)" />
           <Button size="small" text severity="danger" icon="pi pi-user-minus" label="移除" title="移除追踪" :aria-label="'移除追踪 ' + (x.displayName || x.userId)" @click="removeTracked(x)" />
           </span>
+        </div>
 
         <!-- 2026-09-22 用户澄清：「备注是在下面单开一行」✓ —— 有备注才显示该行（无备注不占位 ✓），点它可编辑 ✓ -->
         <div v-if="memoOf(x)" class="tk-memoline" role="button" tabindex="0"
@@ -459,13 +459,13 @@ onMounted(load);
 .tk-statusline { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .tk-status { font-size: 10px; color: var(--text-dim); border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; line-height: 16px; flex: none; }
 .tk-status.on { color: #52c41a; border-color: rgba(82, 196, 26, 0.4); }
-.tk-sub { font-size: 11px; color: var(--text-dim); display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+.tk-sub { font-size: 11px; color: var(--text-dim); display: flex; flex-direction: row; align-items: center; flex-wrap: nowrap; gap: 8px; overflow: hidden; white-space: nowrap; }
 .tk-uid { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-.tk-stat { color: var(--accent); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-stat { color: var(--accent); display: inline; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
 .tk-stat { color: var(--accent); flex: none; }
 .tk-stat-dim { color: var(--text-dim); }
 .tk-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
-.tk-actions { display: flex; gap: 2px; margin-left: 42px; margin-top: 1px; }
+.tk-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; flex: none; }
 
 .tk-detail { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px 12px; margin-left: 34px; }
 .tk-empty { font-size: 12px; color: var(--text-dim); padding: 6px 2px; }
