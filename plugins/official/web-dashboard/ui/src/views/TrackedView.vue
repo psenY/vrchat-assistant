@@ -312,37 +312,34 @@ onMounted(load);
     <div v-else class="tk-list">
       <div v-for="x in filtered" :key="x.userId" class="tk-item">
         <!-- 2026-09-22：由 button 改为 div[role=button] —— 用户要求「资料/移除」放到本行末尾，而 button 内不能嵌套 button ✗（动态流页同做法）-->
-        <div class="tk-row" role="button" tabindex="0" :class="{ open: expanded === x.userId }" @click="toggle(x.userId)" @keydown.enter="toggle(x.userId)">
-          <Avatar :image="x.avatarUrl || ''" :label="avatarLabel(x.avatarUrl, x.displayName)" shape="circle" size="large" />
-          <div class="tk-info">
-            <b class="tk-name">
-              <span v-if="x.status" class="tk-dot" :style="statusDotStyle(x.location)" :title="'当前状态：' + statusText(x.status)"></span>
-              {{ x.displayName || x.userId }}
-            </b>
-            <small class="tk-sub">
-              <span class="tk-statusline">
-                <span class="mono tk-uid">{{ x.userId }}</span>
-                <span v-if="x.status" class="tk-status" :class="{ on: isOnline(x.location) }">{{ statusText(x.status) }}</span>
-              </span>
-              <span v-if="lastChangeAt(x)" class="tk-stat">最近变化 {{ reltime(lastChangeAt(x)) }}</span>
-              <span v-if="lastChangeAt(x) && x.lastRefreshAt" class="tk-sep" aria-hidden="true">·</span>
-              <span v-if="x.lastRefreshAt" class="tk-stat tk-stat-dim">上次检测 {{ fmtRefresh(x.lastRefreshAt) }}</span>
-              <span v-else class="tk-stat tk-stat-dim">尚未检测</span>
+        <!-- 2026-09-22 用户：「先把这一页按好友页的样式统一」✓ —— 行结构与样式对齐 FriendsView 的 .friend-card：
+             Avatar + .fc-text（名字 → 备注 → uid/状态 → 最近变化·上次检测），动作区右推在本行末尾 ✓ -->
+        <div class="friend-card" role="button" tabindex="0" @click="toggle(x.userId)" @keydown.enter="toggle(x.userId)">
+          <Avatar :image="x.avatarUrl || ''" :label="avatarLabel(x.avatarUrl, x.displayName)" shape="circle" />
+          <div class="fc-text">
+            <b>{{ x.displayName || x.userId }}</b>
+            <small v-if="memoOf(x)" class="fc-memo" :title="memoOf(x)" @click.stop="openMemo(x)">{{ memoOf(x) }}</small>
+            <small>
+              <span v-if="x.status" class="tk-dot" :style="statusDotStyle(x.location)"></span>
+              <span v-if="x.status">{{ statusText(x.status) }}</span>
+              <span class="mono">{{ x.userId }}</span>
+            </small>
+            <small>
+              <span v-if="lastChangeAt(x)">最近变化 {{ reltime(lastChangeAt(x)) }}</span>
+              <span v-if="lastChangeAt(x) && x.lastRefreshAt">·</span>
+              <span v-if="x.lastRefreshAt">上次检测 {{ fmtRefresh(x.lastRefreshAt) }}</span>
+              <span v-else>尚未检测</span>
             </small>
           </div>
-          <span v-if="lastChangeAt(x)" class="tk-dot" title="有资料变化"></span>
-          <Button size="small" text rounded icon="pi pi-pencil" :severity="memoOf(x) ? 'info' : 'secondary'"
-            :title="memoOf(x) ? '备注：' + memoOf(x) : '添加备注'" :aria-label="'编辑备注：' + (x.displayName || x.userId)"
-            @click.stop="openMemo(x)" />
-          <Button size="small" text rounded :icon="expanded === x.userId ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
-            :aria-label="expanded === x.userId ? '收起变化历史' : '展开变化历史'" @click.stop="toggle(x.userId)" />
-          <!-- 2026-09-22：动作按钮在本行末尾（此前被提前的 </div> 关在行外、变成另起一行 ✗）-->
           <span class="tk-actions" @click.stop>
-          <Button size="small" text icon="pi pi-user" label="资料" title="打开资料" :aria-label="'打开 ' + (x.displayName || x.userId) + ' 的资料'" @click="openUser(x.userId)" />
-          <Button size="small" text severity="danger" icon="pi pi-user-minus" label="移除" title="移除追踪" :aria-label="'移除追踪 ' + (x.displayName || x.userId)" @click="removeTracked(x)" />
+            <Button size="small" text rounded icon="pi pi-pencil" :severity="memoOf(x) ? 'info' : 'secondary'"
+              :title="memoOf(x) ? '备注：' + memoOf(x) : '添加备注'" :aria-label="'编辑备注'" @click.stop="openMemo(x)" />
+            <Button size="small" text icon="pi pi-user" label="资料" title="打开资料" :aria-label="'打开 ' + (x.displayName || x.userId) + ' 的资料'" @click.stop="openUser(x.userId)" />
+            <Button size="small" text severity="danger" icon="pi pi-user-minus" label="移除" title="移除追踪" :aria-label="'移除追踪'" @click.stop="removeTracked(x)" />
+            <Button size="small" text rounded :icon="expanded === x.userId ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
+              :aria-label="expanded === x.userId ? '收起变化历史' : '展开变化历史'" @click.stop="toggle(x.userId)" />
           </span>
         </div>
-
         <!-- 2026-09-22 用户澄清：「备注是在下面单开一行」✓ —— 有备注才显示该行（无备注不占位 ✓），点它可编辑 ✓ -->
         <div v-if="memoOf(x)" class="tk-memoline" role="button" tabindex="0"
              :title="memoOf(x)" @click.stop="openMemo(x)" @keydown.enter="openMemo(x)">
@@ -554,4 +551,15 @@ onMounted(load);
 .tk-memoline:hover { border-color: var(--border); color: var(--text); }
 .tk-memoline > i { font-size: 11px; margin-top: 2px; }
 .tk-memotext { white-space: pre-wrap; word-break: break-word; }
+
+/* ── friend-page-2026-09-22（用户：「先按好友页的样式统一」）──────────────────
+   以下 6 条与 FriendsView.vue:242-258 **完全一致**（同变量同数值 ✓），仅作用域在本组件 ✓ */
+.friend-card { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius); cursor: pointer; transition: background 0.12s, border-color 0.12s; }
+.friend-card:hover { background: var(--surface-2); border-color: var(--border); }
+.fc-text { min-width: 0; flex: 1; }
+.fc-text b { display: block; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-text small { color: var(--text-dim); font-size: 11px; display: flex; align-items: center; gap: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-memo { display: block; font-size: 10px; color: var(--accent); opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; cursor: pointer; }
+/* 增量：动作区右推（好友页卡内没有动作按钮 ✓）*/
+.tk-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; flex: none; }
 </style>
