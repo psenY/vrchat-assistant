@@ -23,7 +23,9 @@ export const TYPE_ICONS = {
 
 export const TYPE_SEVERITIES = {
   location: 'info', online: 'success', offline: 'secondary', status: 'warning', avatar: 'warn',
-  bio: 'contrast', userIcon: 'secondary', pronouns: 'contrast', displayName: 'warn',  trustLevel: 'contrast',
+  // 用户 2026-09-22：`contrast` 在深色模式下渲染成**白底**徽章，与其它深色底格格不入 → 统一改深色系：
+  // 简介/代词属资料文本变更（info 蓝）、等级变动属正向（success 绿；图标仍是盾牌）。
+  bio: 'info', userIcon: 'secondary', pronouns: 'info', displayName: 'warn', trustLevel: 'success',
   friendRequest: 'success', invite: 'info', message: 'secondary', group: 'warn',
   notification: 'secondary', notificationUpdate: 'secondary', friendAdd: 'success',
   friendDelete: 'danger', unknown: 'secondary', contentRefresh: 'info', groupJoined: 'success',
