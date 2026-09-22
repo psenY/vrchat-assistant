@@ -325,7 +325,7 @@ onMounted(load);
             <small><span class="fc-dot" :style="statusDotStyle(x.location)"></span>{{ statusText(x.status) }}<i v-if="platformIcon(x.platform)" class="pi fc-plat" :class="platformIcon(x.platform)" :title="platformLabel(x.platform)"></i><!-- 2026-09-22 用户报「平台图标是乱码」✗：漏了 pi（图标字体基础类）与 fc-plat（尺寸样式）⇒ 渲染成豆腐块 ✓；现与好友页写法完全一致 ✓ --></small>
             <small v-if="memoOf(x)" class="fc-memo" :title="memoOf(x)">{{ memoOf(x) }}</small>   <!-- 2026-09-22 用户：备注行放到在线行下面 ✓ -->
 <small class="tk-meta">
-                          <span v-if="lastChangeAt(x)">上次资料变化 {{ reltime(lastChangeAt(x)) }}</span>
+                          <span v-if="lastChangeAt(x)">变化 {{ reltime(lastChangeAt(x)) }}</span><!-- 2026-09-22 用户：卡片一行放不下「上次资料变化」⇒ 用短的「变化」✓（弹窗空间够，那边保留全称 ✓） -->
                           <span v-if="lastChangeAt(x) && x.lastRefreshAt">·</span>
                           <span v-if="x.lastRefreshAt">上次检测 {{ fmtRefresh(x.lastRefreshAt) }}</span>
                           <span v-if="!lastChangeAt(x) && !x.lastRefreshAt">暂无记录</span>
