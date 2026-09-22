@@ -31,6 +31,8 @@ function sourceLabel(s) {
 function prevLabelOf(e) { return specialLocationLabel(e.previousLocation) || e.previousWorldName || ''; }
 function curIsWorld(e) { return String(e.worldId || '').startsWith('wrld_'); }
 
+import TrustBadge from '../components/TrustBadge.vue';
+
 const filterOptions = [
   { value: 'all', label: '所有' },
   { value: 'location', label: '位置变动' },
@@ -569,7 +571,14 @@ onUnmounted(() => {
 
           <!-- 信任等级变更 -->
           <template v-else-if="typeOf(x) === 'trustLevel'">
-            <span class="dim">信任等级：</span><span>{{ x.previousTrustLevel || '(空)' }} → {{ x.trustLevel || '(空)' }}</span>
+            <span class="dim">信任等级：</span>
+            <!-- 用户 2026-09-22：等级变更用面板既有的描边盾牌徽章（components/TrustBadge.vue）呈现，
+                 而不是纯文本「Known User → Trusted User」。空值仍显式写 (空)，避免看起来像"没记录"。 -->
+            <span v-if="!x.previousTrustLevel" class="dim">(空)</span>
+            <TrustBadge v-else :level="x.previousTrustLevel" />
+            <span class="arr">→</span>
+            <span v-if="!x.trustLevel" class="dim">(空)</span>
+            <TrustBadge v-else :level="x.trustLevel" />
           </template>
 
           <!-- 改名 -->
