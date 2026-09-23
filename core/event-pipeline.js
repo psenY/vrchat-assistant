@@ -262,7 +262,12 @@ export class EventPipeline {
       // 未知：既不 diff 也不回写，避免把好数据写坏。
       const trust = trustFromTags(userObj.tags) || '';
       // 新头像 URL 在外层求值：diff 与回写（后者在 if (prev) 块之外）都要用（2026-09-22 修作用域 bug）
-      const newAvatarUrl = userObj.currentAvatarImageUrl || '';
+      // 2026-09-23 用户报「检测不到模型变动」实测根因：WS 的 friend-update 载荷里【没有】
+      // currentAvatarImageUrl / currentAvatarThumbnailImageUrl / currentAvatar 任何一键 ——
+      // 实际字段是 iconUrl / iconFrame / bannerType / bannerUrl（新版资料系统，bannerType=avatarBanner 时
+      // iconUrl 指向模型图）⇒ newAvatarUrl 恒为空 ⇒ avatarChanged 恒假 ⇒ 永远没有模型变动事件。
+      // 与非好友模型名同一根因（上游换了暴露方式）⇒ 同样回落到 iconUrl。
+      const newAvatarUrl = userObj.currentAvatarImageUrl || userObj.iconUrl || '';
       const prev = this.storage.getFriend(userId);
       if (prev && prev.user_id) {
         const changes = [];
