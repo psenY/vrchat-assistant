@@ -31,7 +31,7 @@ const WS_PROXY = process.env.VRC_MONITOR_WS_PROXY
 const RECONNECT_DELAYS = [1, 2, 4, 8, 16, 30, 60];
 const HEARTBEAT_INTERVAL = 30_000;  // 30 秒 ping
 const HEARTBEAT_TIMEOUT = 10_000;   // 10 秒等 pong
-const SILENT_RECONNECT_MS = 15 * 60 * 1000; // 15 分钟零事件 ⇒ 视为半死连接（issue #247；ping/pong 可能仍正常）
+const SILENT_RECONNECT_MS = 180 * 60 * 1000; // 极端兜底（issue #247）：本机 24h 实测最长相邻间隔 157.8 分钟 ⇒ 固定计时器不能当主判据
                                         // 2026-09-23 用户定：15 分钟（原 60 分钟）；代价是夜里安静期可能多几次无谓重连，无副作用
 const MAX_RECONNECT_ATTEMPTS = 0;   // 0 = 无限重试
 
