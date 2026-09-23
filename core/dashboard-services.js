@@ -1455,10 +1455,6 @@ export function registerDashboardServices(loader, ctx) {
         }
       }
     } catch { /* 模型名解析失败不影响 */ }
-    // 展示群组：isRepresenting 优先，否则第一个
-    // 2026-09-22：把追踪行的本地备注一起带出（弹窗里直接编辑；用户：备注就在弹窗改，免得多挂一个弹窗）
-    let trackedMemo = '';
-    try { const tm = ctx.storage.query('SELECT memo FROM tracked_non_friends WHERE user_id = $u', { $u: uid })[0]; trackedMemo = (tm && tm.memo) || ''; } catch { /* 忽略 */ }
     const groupArr = Array.isArray(groups) ? groups : [];
     const representedGroup = groupArr.find((g) => g && g.isRepresenting) || groupArr[0] || null;
     // 本次在线时长（当前在线时：从最近 friend-online/location 或本地 last_seen 起算）
