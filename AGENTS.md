@@ -92,6 +92,7 @@
 - `VRC_MONITOR_DB_PATH`：SQLite 数据库文件路径（默认 `<仓库>/data/vrc-monitor.sqlite3`）。可将数据库迁移到任意位置（如独立数据盘），配合常驻服务使用。
 - `VRC_MONITOR_BACKUP_DIR`：自动备份目录（默认 `<仓库>/data/backups`）。
 - `VRC_MONITOR_LOG_DIR`：常驻服务脚本的日志 / 修复记录目录（默认 `<仓库>/service-logs`，仅 `service-windows/` 脚本使用；Linux systemd 方案日志走 journald，无需设置）。
+- `VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS`：**出游戏确认窗口（秒）**（默认 `360`，范围 0-3600，调用时读取；**超过 3600 按 3600 钳制**；**未设/空串/纯空白/非数字/负数一律回落默认 360s——只有显式 `0` 才关闭确认窗口**）。VRChat 在私人房之间切换 / 换图间隙会瞬时上报 `offline:offline`（实测 0.6-11.7s 居多，也有 349s / 352.5s 一档）；旧逻辑单次离线即判出游戏并立即写挂机文案，导致状态文字来回跳（issue #218）。窗口内判 **unknown**（消费方一律跳过、不写文案、不翻转判定态），满窗口才判 not_in_game。**边界（写实测数字，勿过度承诺）：实测覆盖 352.5s 档、不覆盖 7353.8s 档**；真出游戏后写文案会延后最多一个窗口；设 `0` 恢复旧行为。
 - `VRC_MONITOR_CAPTURE_LOG_MAX_SIZE`：Hermes 插件 stdout 捕获文件（`$HERMES_HOME/workspace/vrc-monitor/monitor.log`，node 子进程 stdout/stderr 合并写入）的轮转阈值字节（默认 `10485760`=10MB）。注意：与 `VRC_MONITOR_LOGGER_MAX_SIZE`（logger 模块结构化日志 `<VRC_MONITOR_DIR>/logs/monitor.log` 的轮转阈值）**不同名不同义**，勿混用。
 - `VRC_MONITOR_DEDUP_SAME_INSTANCE_LOCATION`：**同世界同实例的重复位置事件是否去重**（默认 `1`=去重）。VRChat 在好友改 Avatar / 客户端重新同步时会重发 `world+instance` 完全相同的 `friend-location`——逐条落库会让看板动态流呈现成「一直在换世界」（同一世界名刷屏），实际并未换世界。开启后：同 location 字符串且在窗口内的重复**只刷新好友状态、不落事件不刷动态流**；换实例/换世界/上下线/改模型等真实变化照常落库。设 `0` 保留逐条原始事件（排查用）。
 - `VRC_MONITOR_DEDUP_SAME_INSTANCE_WINDOW_SECONDS`：上一条的**去重时间窗**（默认 `300` 秒）。窗口之外的重复仍会落一条「心跳」事件，便于观察「某人长期待在同一实例」。非法值/0/负回落默认。
