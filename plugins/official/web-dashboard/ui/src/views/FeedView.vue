@@ -397,7 +397,7 @@ onUnmounted(() => {
           <i class="pi pi-filter"></i> 此人 {{ store.feedOnlyUser.slice(0, 8) }}…
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyTracked }" @click="toggleTrackedFilter" :title="'仅显示追踪非好友的事件'" aria-label="仅显示追踪非好友的事件">
-          <i class="pi pi-binoculars"></i><span class="chip-label">非好友追踪</span><span v-if="store.trackedIds.size"> ({{ store.trackedIds.size }})</span>
+          <i class="pi pi-users"></i><span v-if="store.trackedIds.size"> ({{ store.trackedIds.size }})</span>
         </button>
       </span>
       <span class="feed-count" :title="'当前筛选 ' + rows.length + ' / 已加载 ' + store.feedEvents.length + ' / 数据库共 ' + store.feedTotal + ' 条'">{{ rows.length }} / {{ store.feedEvents.length }} / {{ store.feedTotal }}</span>
