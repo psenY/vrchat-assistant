@@ -763,7 +763,8 @@ onUnmounted(() => {
 .search-clear { font-size: 10px; color: var(--text-dim); cursor: pointer; padding: 2px; flex: none; }
 .search-clear:hover { color: var(--text); }
 .feed-sub { font-size: 11px; color: var(--text-dim); flex: 1; min-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.feed-count { margin-left: auto; color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 2026-09-23 用户反馈「错位了」：.feed-count 靠 margin-left:auto 靠右，但一行挤满时 auto 会退化成 0 ⇒ 与图标组贴死 ⇒ 加固定间距兜底 */
+.feed-count { padding-left: 10px; margin-left: auto; color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* C4 窄窗口：计数保持行内、贴最右（不换行独占） */
 @media (min-width: 900px) and (max-width: 1280px) {
   .feed-count { flex-basis: auto; margin-left: auto; text-align: right; max-width: 40%; }
