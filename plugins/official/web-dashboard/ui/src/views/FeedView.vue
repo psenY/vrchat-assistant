@@ -372,6 +372,7 @@ onUnmounted(() => {
     <div class="feed-head">
       <h2><i class="pi pi-bolt"></i> 动态</h2>
       <span v-if="!store.feedTotal" class="feed-sub">好友活动实时记录</span>
+      <span v-else class="feed-sub" aria-hidden="true"></span>
       <Tag v-if="store.feedLoading" value="同步中…" severity="secondary" rounded />
       <!-- 日期+星标在标题行（双端统一）；弹层锚定到点击的按钮 -->
       <span class="vt-actions">
@@ -397,7 +398,7 @@ onUnmounted(() => {
           <i class="pi pi-filter"></i> 此人 {{ store.feedOnlyUser.slice(0, 8) }}…
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyTracked }" @click="toggleTrackedFilter" :title="'仅显示追踪非好友的事件'" aria-label="仅显示追踪非好友的事件">
-          <i class="pi pi-users"></i><span v-if="store.trackedIds.size"> ({{ store.trackedIds.size }})</span>
+          <i class="pi pi-users"></i>
         </button>
       </span>
       <span class="feed-count" :title="'当前筛选 ' + rows.length + ' / 已加载 ' + store.feedEvents.length + ' / 数据库共 ' + store.feedTotal + ' 条'">{{ rows.length }} / {{ store.feedEvents.length }} / {{ store.feedTotal }}</span>
