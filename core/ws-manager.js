@@ -31,6 +31,7 @@ const WS_PROXY = process.env.VRC_MONITOR_WS_PROXY
 const RECONNECT_DELAYS = [1, 2, 4, 8, 16, 30, 60];
 const HEARTBEAT_INTERVAL = 30_000;  // 30 秒 ping
 const HEARTBEAT_TIMEOUT = 10_000;   // 10 秒等 pong
+const SILENT_RECONNECT_MS = 60 * 60 * 1000; // 60 分钟零事件 ⇒ 视为半死连接（issue #247；ping/pong 可能仍正常）
 const MAX_RECONNECT_ATTEMPTS = 0;   // 0 = 无限重试
 
 export class WsManager {
@@ -50,6 +51,7 @@ export class WsManager {
     this.lastToken = null;
     this.connectedAt = null;
     this.disconnectedAt = null;
+    this.lastMessageAt = null;     // 最近一次收到 WS 消息的时刻（issue #247 静默检测用）
     this.status = 'idle';          // idle | connecting | connected | reconnecting | error
     this.eventLog = [];            // 最近 100 条事件（debug）
     this._reconnectScheduled = false;  // 防止重复调度重连
@@ -67,6 +69,9 @@ export class WsManager {
       disconnectedAt: this.disconnectedAt,
       uptime: this.connectedAt ? Math.floor((Date.now() - this.connectedAt) / 1000) : 0,
       lastToken: this.lastToken ? `***${this.lastToken.slice(-6)}` : null,
+      // issue #247：外部可据此判断"连着但没消息"
+      lastMessageAt: this.lastMessageAt ? new Date(this.lastMessageAt).toISOString() : null,
+      silentForSec: this.lastMessageAt ? Math.floor((Date.now() - this.lastMessageAt) / 1000) : null,
     };
   }
 
@@ -220,6 +225,7 @@ export class WsManager {
   }
 
   _onMessage(data) {
+    this.lastMessageAt = Date.now();   // issue #247：任何消息都刷新静默计时
     const raw = data.toString();
     
     // 记录到事件日志（最近 100 条）
@@ -288,6 +294,18 @@ export class WsManager {
     this._pongReceived = true;
 
     this.heartbeatTimer = setInterval(() => {
+      // issue #247：半死连接检测 —— ping/pong 可能仍然正常（本次实测就是），
+      // 但服务端已不再推送任何事件（/health 报 connected、75 分钟零消息）。
+      // 故用"消息静默超时"兜底：超过阈值无任何消息 ⇒ 主动重连。
+      if (this.status === 'connected' && this.lastMessageAt &&
+          Date.now() - this.lastMessageAt > SILENT_RECONNECT_MS) {
+        const mins = Math.round(SILENT_RECONNECT_MS / 60000);
+        log.info('[警告] WS 静默超过 ' + mins + ' 分钟（ping/pong 正常但无事件）⇒ 主动重连');
+        try { recordOpsLog('ws', 'warn', 'WS 静默超时（' + mins + ' 分钟无消息），主动重连'); } catch {}
+        this.lastMessageAt = Date.now();   // 先刷新，避免重连期间重复触发
+        void this.forceReconnect().catch(() => {});
+        return;
+      }
       if (this.ws?.readyState === WebSocket.OPEN) {
         this._pongReceived = false;
         this.ws.ping();
