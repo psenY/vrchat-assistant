@@ -211,9 +211,11 @@ export class WsManager {
   }
 
   _onOpen() {
+    this.lastMessageAt = Date.now();   // issue #247：连接成功即开始静默计时（见下）
     const lastAttempt = this.attempt; // 归零前记录本次成功前的重连次数（审核建议）
     this.attempt = 0;
     this.connectedAt = new Date();
+    // issue #247：连上也刷新一次 —— 否则"连上后一条消息都没来过"时静默计时永不启动
     this._setStatus('connected');
     log.info(`[成功] 已连接 (${this.connectedAt.toISOString().slice(11, 19)})`);
     recordOpsLog('ws', 'info', lastAttempt > 0
