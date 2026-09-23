@@ -371,11 +371,16 @@ export async function load(quiet = false) {
       else if (o.status && o.status.indicator) store.vrcStatus = o.status.indicator;
     }
     store.friends = (f && f.friends) || (Array.isArray(f) ? f : store.friends);
-    if (!Array.isArray(store.feedEvents) || store.feedEvents.length <= 50) {
+    // 2026-09-23（同步 PR #228 的关键判据）：请求失败时 parseEvents(null) 会给出 {events:[],total:0}
+    // ⇒ 原写法会把动态流写成空、用户看到「暂无动态」却没有任何失败提示 ✗
+    // ⇒ 只在「新数据非空 或 旧列表本就为空」时才覆盖；失败/空响应时**保持旧值** ✓
+    const _hasNew = Array.isArray(parsed.events) && parsed.events.length > 0;
+    const _hadNone = !Array.isArray(store.feedEvents) || store.feedEvents.length === 0;
+    if ((_hasNew || _hadNone) && (!Array.isArray(store.feedEvents) || store.feedEvents.length <= 50)) {
       store.feedEvents = parsed.events;
       store.feedTotal = parsed.total || store.feedTotal;
     }
-    store.feedHasMore = parsed.events.length >= 50;
+    if (_hasNew) store.feedHasMore = parsed.events.length >= 50;
     syncRightGroups();
     writeCache({
       friends: store.friends,
