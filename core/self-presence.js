@@ -34,9 +34,15 @@ export const SELF_PRESENCE_OFFLINE_GRACE_DEFAULT_MS = 6 * 60 * 1000;   // 默认
 
 /** 出游戏确认窗口（毫秒）：env VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS（默认 360s，范围 0-3600），调用时读取。 */
 export function readOfflineGraceMs() {
-  const n = Number(process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS);
-  if (!Number.isFinite(n)) return SELF_PRESENCE_OFFLINE_GRACE_DEFAULT_MS;
-  return Math.min(3600, Math.max(0, n)) * 1000;
+  const raw = process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS;
+  // 未设 / 空串（.env 里写成 VAR=）/ 纯空白 / 非数字 / 负数 → 一律回落默认；
+  // **只有显式 0 才关闭确认窗口**。
+  // 理由（#221 审核 ⚠️）：旧写法走 Number('') === 0 → 一个空值会把刚修好的去抖静默关掉，
+  // 使用者不会收到任何告警；本仓库同类变量（如 WORLD_FETCH_COOLDOWN_MS）的既有约定是「非法值/负回落默认」。
+  if (raw === undefined || String(raw).trim() === '') return SELF_PRESENCE_OFFLINE_GRACE_DEFAULT_MS;
+  const n = Number(String(raw).trim());
+  if (!Number.isFinite(n) || n < 0) return SELF_PRESENCE_OFFLINE_GRACE_DEFAULT_MS;
+  return Math.min(3600, n) * 1000;
 }
 
 /** 非 wrld_ 的"在游戏内"位置前缀（实例可见性为 private/friends 等时 VRChat 不下发 worldId） */
@@ -97,6 +103,9 @@ export function resolveSelfPresence(storage, {
   if (loc === '' || loc === 'offline' || loc === 'offline:offline') {
     // 未满确认窗口 → unknown：消费方（presence-status / events 离线刷新调度器 / dashboard）
     // 一律跳过，既不写挂机文案也不翻转判定态；满窗口才认为真的离开（issue #218）。
+    // 注：ageMs 为 null（缺失 / 不可解析的 created_at）→ `ageMs !== null` 为假 →
+    // 直接判 not_in_game（视为已超出确认窗口）。这是**保守取旧行为**：坏时间戳不得把出游戏判定
+    // 永久卡在 unknown、导致真下线写不进挂机文案。
     if (ageMs !== null && ageMs < offlineGraceMs) {
       return { ...base, state: 'unknown', location: loc, at, ageMs };
     }
