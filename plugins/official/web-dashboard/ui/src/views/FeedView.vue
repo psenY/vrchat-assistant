@@ -783,7 +783,9 @@ onUnmounted(() => {
 /* 筛选 chip：视觉语言统一走全局 .chip（style.css），此处仅保留本页私有覆盖 */
 .date-btn i { font-size: 11px; }
 .date-btn.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
-.star-btn { width: 30px; padding: 0; justify-content: center; }
+/* 2026-09-23 issue #244：原为固定 width:30px（只适合纯图标方按钮），但被 4 个带文字的按钮复用
+   ⇒ 文字会溢出胶囊（.chip 的 overflow 是 visible）。改为 min-width + auto：图标按钮仍是 30px 方形，带文字的按内容撑开 */
+.star-btn { min-width: 30px; width: auto; padding: 0 8px; justify-content: center; }
 .star-btn i { font-size: 12px; }
 .star-btn.star-on { color: var(--star); border-color: color-mix(in srgb, var(--star) 40%, var(--border)); }
 .date-cal { padding: 6px; }
