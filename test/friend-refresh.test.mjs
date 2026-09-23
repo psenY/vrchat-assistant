@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { refreshFriendList } from '../core/friend-refresh.js';
+import { refreshFriendList, trustFromTags } from '../core/friend-refresh.js';
 
 function userObj(id, { trust, tags, name } = {}) {
   return {
@@ -24,12 +24,10 @@ function userObj(id, { trust, tags, name } = {}) {
 function makeCtx({ friends, users, failIds = new Set() }) {
   const events = [];
   const upserts = [];
-  const cache = new Map();
   const storage = {
     query: () => friends,
     upsertFriend(f) { upserts.push(f); },
     insertEvent(e) { events.push(e); },
-    setPlanetCache(k, v) { cache.set(k, v); },   // 模型名缓存（2026-09-22 新增断言用）
   };
   const api = { _request: async (m, url) => {
     const id = decodeURIComponent(url.split('/').pop());
@@ -39,7 +37,7 @@ function makeCtx({ friends, users, failIds = new Set() }) {
   } };
   const rateLimiter = { execute: async (fn) => fn() };
   const logs = [];
-  return { ctx: { api, rateLimiter, storage }, events, upserts, cache, logs: (m) => logs.push(m), logsArr: logs };
+  return { ctx: { api, rateLimiter, storage }, events, upserts, logs: (m) => logs.push(m), logsArr: logs };
 }
 
 test('等级变化：逐好友 /users/{id} → 事件 + 回写基线（Known → Trusted）', async () => {
@@ -135,4 +133,23 @@ test('每周期上限：MAX 截断', async () => {
   }
   assert.equal(upserts.length, 2);
   assert.ok(logsArr.some((l) => l.includes('2/5 位')));
+});
+
+
+test('tag→名称映射与 VRCX/仓库既有口径一致（#222 审核 ⚠️1：防止被静默改回）', () => {
+  // 变异实验证据：把映射改回旧的两行错值后，参数化用例全绿 ⇒ 必须用表驱动逐一钉住。
+  // 权威口径：ui/src/utils.js:165 注释 + start-monitor.js inferTrustFromTags + VRCX computeTrustLevel。
+  const cases = [
+    [['system_trust_basic'], 'New User'],
+    [['system_trust_known'], 'User'],
+    [['system_trust_trusted'], 'Known User'],
+    [['system_trust_veteran'], 'Trusted User'],
+    [['system_trust_legend'], 'Trusted User'],
+    [['system_trust_trusted', 'system_trust_veteran'], 'Trusted User'],   // 多 tag 取最高档
+    [['foo', 'bar'], ''],                                                   // 非信任 tag → 空
+    [[], ''],
+  ];
+  for (const [tags, want] of cases) {
+    assert.equal(trustFromTags(tags), want, 'tags=' + tags.join(','));
+  }
 });
