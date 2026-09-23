@@ -380,15 +380,15 @@ onUnmounted(() => {
           {{ dateLabel }}
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyFav }" @click="toggleFav" :title="'仅显示星标好友'" aria-label="仅显示星标好友">
-          <i :class="store.feedOnlyFav ? 'pi pi-star-fill' : 'pi pi-star'"></i><span class="chip-label">星标</span><span v-if="store.favFriendIds && store.favFriendIds.size"> ({{ store.favFriendIds.size }})</span>
+          <i :class="store.feedOnlyFav ? 'pi pi-star-fill' : 'pi pi-star'"></i><span v-if="store.favFriendIds && store.favFriendIds.size"> ({{ store.favFriendIds.size }})</span>
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyWatch }" @click="toggleWatchFilter" :title="'仅显示关注名单'" aria-label="仅显示关注名单">
-          <i :class="store.feedOnlyWatch ? 'pi pi-eye' : 'pi pi-eye-slash'"></i><span class="chip-label">关注名单</span>
+          <i :class="store.feedOnlyWatch ? 'pi pi-eye' : 'pi pi-eye-slash'"></i>
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyMe }" @click="toggleMeFilter" :title="'仅显示我的事件'" aria-label="仅显示我的事件">
-          <i :class="store.feedOnlyMe ? 'pi pi-user-check' : 'pi pi-user'"></i><span class="chip-label">我的</span>
+          <i :class="store.feedOnlyMe ? 'pi pi-user-check' : 'pi pi-user'"></i>
         </button>
-        <button class="chip star-btn" title="导出当前筛选结果（JSON）" aria-label="导出当前筛选结果" @click="exportRows"><i class="pi pi-download"></i><span class="chip-label">导出</span></button>
+        <button class="chip star-btn" title="导出当前筛选结果（JSON）" aria-label="导出当前筛选结果" @click="exportRows"><i class="pi pi-download"></i></button>
         <button v-if="hasAnyFilter" class="chip star-btn" title="清除全部筛选" aria-label="清除全部筛选" @click="clearAllFilters"><i class="pi pi-filter-slash"></i> 清除全部</button>
         <button v-if="store.feedOnlyWorld" class="chip star-btn star-on" @click="clearWorldFilter" :title="'清除「只看此世界」筛选'" aria-label="清除只看此世界筛选">
           <i class="pi pi-globe"></i> 只看此世界{{ worldNameOf() ? '：' + worldNameOf().slice(0, 16) : '' }}
@@ -397,7 +397,7 @@ onUnmounted(() => {
           <i class="pi pi-filter"></i> 此人 {{ store.feedOnlyUser.slice(0, 8) }}…
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyTracked }" @click="toggleTrackedFilter" :title="'只看追踪的非好友（共 ' + store.trackedIds.size + ' 位）'" aria-label="仅显示追踪非好友的事件">
-          <i class="pi pi-binoculars"></i><span class="chip-label">追踪非好友</span><span v-if="store.trackedIds.size"> ({{ store.trackedIds.size }} 位)</span>
+          <i class="pi pi-binoculars"></i><span v-if="store.trackedIds.size"> ({{ store.trackedIds.size }} 位)</span>
         </button>
       </span>
       <span class="feed-count" :title="'当前筛选 ' + rows.length + ' / 已加载 ' + store.feedEvents.length + ' / 数据库共 ' + store.feedTotal + ' 条'">筛出 {{ rows.length }} 条 · 共 {{ store.feedTotal }} 条</span>

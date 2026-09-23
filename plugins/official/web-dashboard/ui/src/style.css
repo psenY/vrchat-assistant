@@ -196,8 +196,6 @@ body {
 .vt-actions { display: inline-flex; align-items: center; gap: 6px; margin-left: 2px; min-width: 0; }
 .vt-actions .chip { height: 26px; padding: 4px 10px; font-size: 11px; }
 
-/* 2026-09-23 用户反馈「那个按钮看不懂」：图标按钮补可见文字；窄屏自动只留图标（数字保留）*/
-.vt-actions .chip-label { margin-left: 3px; }
 
 .vt-actions .date-btn i { font-size: 10px; }
 .text-dim { color: var(--text-dim); }
@@ -426,7 +424,6 @@ button { font-family: inherit; }
    实测 390px 视口下文档宽 429px ⇒ 罪魁是顶栏右侧图标组 .header-right（right=429 分毫不差 ✓）
    注：.ft-chips 的 right=610 是"滚动区内的正常位置"，不是溢出源（它有 min-width:0 + overflow-x:auto ✓） */
 @media (max-width: 899px) {
-  .vt-actions .chip-label { display: none; }   /* 窄屏只留图标 ✓ */
   .header-right { gap: 2px; }
   .header-right .p-button { width: 34px; height: 34px; min-width: 34px; padding: 0; }
   /* 2026-09-22 第二轮：用户要保留「好友列表」图标 ⇒ 不再隐藏，改为收小尺寸 + 让标题可缩 ✓ */
