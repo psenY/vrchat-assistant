@@ -195,8 +195,6 @@ body {
 /* 动态标题行内嵌动作按钮（移动端日期+星标） */
 .vt-actions { display: inline-flex; align-items: center; gap: 6px; margin-left: 2px; min-width: 0; }
 .vt-actions .chip { height: 26px; padding: 4px 10px; font-size: 11px; }
-
-
 .vt-actions .date-btn i { font-size: 10px; }
 .text-dim { color: var(--text-dim); }
 .mono { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; }
