@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { unlinkSync, existsSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { Storage } from '../core/storage.js';
 
-const TMP = () => `/tmp/trk-241-${process.pid}.db`;
+const TMP = () => path.join(os.tmpdir(), 'trk-241-' + process.pid + '.db');
 const cleanup = () => { try { if (existsSync(TMP())) unlinkSync(TMP()); } catch { /* ignore */ } };
 
 test('迁移幂等：tracked_non_friends 含 fail_count（issue #241）', async () => {
