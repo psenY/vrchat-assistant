@@ -371,7 +371,7 @@ onUnmounted(() => {
 
     <div class="feed-head">
       <h2><i class="pi pi-bolt"></i> 动态</h2>
-      <span class="feed-sub">{{ store.feedTotal ? '数据库共 ' + store.feedTotal + ' 条' : '好友活动实时记录' }}</span>
+      <span v-if="!store.feedTotal" class="feed-sub">好友活动实时记录</span>
       <Tag v-if="store.feedLoading" value="同步中…" severity="secondary" rounded />
       <!-- 日期+星标在标题行（双端统一）；弹层锚定到点击的按钮 -->
       <span class="vt-actions">
