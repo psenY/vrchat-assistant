@@ -16,9 +16,10 @@ test('start-monitor.js：调用了 decideTrackedFail 就必须有 import（防�
 
 test('通用检查：tracked 刷新里引用的策略标识符都已 import', () => {
   const need = ['decideTrackedFail'];
-  const importBlock = SRC.split('\n').filter((l) => l.startsWith('import ')).join('\n');
+  // 2026-09-23 评审 💡：原先按行拼接 import 块 ⇒ 多行 import（本仓 start-monitor.js:32/36/41 就是）覆盖不到 ⇒ 假阴性
+  // ⇒ 改为对整份源码做正则存在性匹配（与第一条用例同源 ✓）
   for (const name of need) {
     if (!new RegExp('\\b' + name + '\\s*\\(').test(SRC)) continue;
-    assert.ok(importBlock.includes(name), name + ' 被调用但没有 import');
+    assert.match(SRC, new RegExp('import\\s*\\{[^}]*\\b' + name + '\\b'), name + ' 被调用但没有 import（含多行 import 形态 ✓）');
   }
 });
