@@ -1455,6 +1455,7 @@ export function registerDashboardServices(loader, ctx) {
         }
       }
     } catch { /* 模型名解析失败不影响 */ }
+    // 展示群组：isRepresenting 优先，否则第一个
     const groupArr = Array.isArray(groups) ? groups : [];
     const representedGroup = groupArr.find((g) => g && g.isRepresenting) || groupArr[0] || null;
     // 本次在线时长（当前在线时：从最近 friend-online/location 或本地 last_seen 起算）
