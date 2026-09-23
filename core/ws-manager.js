@@ -34,11 +34,13 @@ const HEARTBEAT_TIMEOUT = 10_000;   // 10 秒等 pong
 // issue #247：应用层静默阈值 —— 超过该时长没有任何 WS 消息 ⇒ 视为半死连接并主动重连
 // 默认 30 分钟（审核方实测合法静默最长 1645s=27.4min，判别带取 (27min, 75min]）
 // 可用 VRC_MONITOR_WS_SILENT_RECONNECT_MS 覆盖：调用时读取，空/非数字/非正数回落默认
-const SILENT_RECONNECT_DEFAULT_MS = 30 * 60 * 1000;
+const SILENT_RECONNECT_DEFAULT_MS = Number(process.env.VRC_MONITOR_WS_SILENT_RECONNECT_MS) > 0
+  ? Number(process.env.VRC_MONITOR_WS_SILENT_RECONNECT_MS)
+  // 本部署的默认取 3 小时：使用者实例实测「合法静默」最长 157.8 分钟（24 好友），
+  // 30 分钟会在安静时段误重连；上游 PR 的通用默认仍是 30 分钟（见 PR #248）
+  : 180 * 60 * 1000;
 function silentReconnectMs() {
-  const raw = process.env.VRC_MONITOR_WS_SILENT_RECONNECT_MS;
-  const n = Number(raw);
-  return (raw !== undefined && String(raw).trim() !== '' && Number.isFinite(n) && n > 0) ? n : SILENT_RECONNECT_DEFAULT_MS;
+  return SILENT_RECONNECT_DEFAULT_MS;
 }
 const MAX_RECONNECT_ATTEMPTS = 0;   // 0 = 无限重试
 
