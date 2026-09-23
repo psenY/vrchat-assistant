@@ -370,13 +370,6 @@ async function _refreshTrackedNonFriends() {
       }
       if (u.fail_count) { try { storage.run(`UPDATE tracked_non_friends SET fail_count = 0 WHERE user_id = $u`, { $u: u.user_id }); } catch { /* 忽略 */ } }
       const userObj = r.data;
-      // PROBE-V（低噪音）：只在"可能在线"或"有最后在线时间"时留样，便于抓到在线形态 ✓
-      try {
-        const pf = userObj.platform || '', wid = String(userObj.worldId || ''), la = userObj.last_activity || null;
-        if ((pf && pf !== 'offline') || (wid && wid !== 'offline') || la) {
-          log('[PROBE-V] ' + JSON.stringify({ n: (userObj.displayName || '').slice(0, 12), st: userObj.state, pf: pf, lpf: userObj.last_platform, wid: wid.slice(0, 14), loc: String(userObj.location || '').slice(0, 16), la: la, lg: userObj.last_login || null }));
-        }
-      } catch (e) {}
       // 2026-09-22：非好友连 currentAvatarImageUrl/Thumbnail/userIcon **三个键都不存在** ✗（实测原始返回无此三键），
       // 而 VRChat 会给 iconUrl（活数据 ✓）⇒ 补进兜底链，避免 av 恒为空 ✓
       const av = userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl || userObj.userIcon || userObj.iconUrl || '';
