@@ -32,9 +32,13 @@ const RECONNECT_DELAYS = [1, 2, 4, 8, 16, 30, 60];
 const HEARTBEAT_INTERVAL = 30_000;  // 30 秒 ping
 const HEARTBEAT_TIMEOUT = 10_000;   // 10 秒等 pong
 // issue #247：应用层静默阈值 —— 超过该时长没有任何 WS 消息 ⇒ 视为半死连接并主动重连
-// 默认 30 分钟（审核方实测合法静默最长 1645s=27.4min，判别带取 (27min, 75min]）
+// 默认 60 分钟：下界取审核方实测合法静默尾部 1645s=27.4min（数百好友），上界取 issue #247 病例的 75min ⇒ 判别带 (27min, 75min]；60min 同时满足并留约 2.2x 余量。注意：24 好友规模的部署实测合法静默最长可达 157.8min（见 AGENTS.md）——那类部署请用 VRC_MONITOR_WS_SILENT_RECONNECT_MS 显式调大（本仓库自用部署即取 3 小时）。
 // 可用 VRC_MONITOR_WS_SILENT_RECONNECT_MS 覆盖：调用时读取，空/非数字/非正数回落默认
-const SILENT_RECONNECT_DEFAULT_MS = 30 * 60 * 1000;
+const SILENT_RECONNECT_DEFAULT_MS = Number(process.env.VRC_MONITOR_WS_SILENT_RECONNECT_MS) > 0
+  ? Number(process.env.VRC_MONITOR_WS_SILENT_RECONNECT_MS)
+  // 本部署默认 3 小时：使用者实例实测合法静默最长 157.8 分钟（24 好友）；
+  // 上游 PR 的通用默认是 60 分钟（数百好友实测尾部 27.4 分钟）
+  : 180 * 60 * 1000;
 function silentReconnectMs() {
   const raw = process.env.VRC_MONITOR_WS_SILENT_RECONNECT_MS;
   const n = Number(raw);
@@ -285,6 +289,7 @@ export class WsManager {
 
   _onClose(code, reason) {
     this.disconnectedAt = new Date();
+    this.lastMessageAt = null;   // 评审 2：断开后 silentForSec 不应继续增长（与 stop() 对称）
     const reasonStr = reason ? reason.toString() : '无';
     log.info(`[警告] 断开: code=${code}, reason=${reasonStr}`);
     recordOpsLog('ws', 'warn', 'WebSocket 断开 code=' + code + '（' + reasonStr + '），将自动重连');
