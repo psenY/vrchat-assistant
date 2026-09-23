@@ -34,13 +34,11 @@ const HEARTBEAT_TIMEOUT = 10_000;   // 10 秒等 pong
 // issue #247：应用层静默阈值 —— 超过该时长没有任何 WS 消息 ⇒ 视为半死连接并主动重连
 // 默认 30 分钟（审核方实测合法静默最长 1645s=27.4min，判别带取 (27min, 75min]）
 // 可用 VRC_MONITOR_WS_SILENT_RECONNECT_MS 覆盖：调用时读取，空/非数字/非正数回落默认
-const SILENT_RECONNECT_DEFAULT_MS = Number(process.env.VRC_MONITOR_WS_SILENT_RECONNECT_MS) > 0
-  ? Number(process.env.VRC_MONITOR_WS_SILENT_RECONNECT_MS)
-  // 本部署的默认取 3 小时：使用者实例实测「合法静默」最长 157.8 分钟（24 好友），
-  // 30 分钟会在安静时段误重连；上游 PR 的通用默认仍是 30 分钟（见 PR #248）
-  : 180 * 60 * 1000;
+const SILENT_RECONNECT_DEFAULT_MS = 30 * 60 * 1000;
 function silentReconnectMs() {
-  return SILENT_RECONNECT_DEFAULT_MS;
+  const raw = process.env.VRC_MONITOR_WS_SILENT_RECONNECT_MS;
+  const n = Number(raw);
+  return (raw !== undefined && String(raw).trim() !== '' && Number.isFinite(n) && n > 0) ? n : SILENT_RECONNECT_DEFAULT_MS;
 }
 const MAX_RECONNECT_ATTEMPTS = 0;   // 0 = 无限重试
 
@@ -99,6 +97,9 @@ export class WsManager {
     this.shouldReconnect = false;
     this._clearTimers();
     if (this.ws) {
+      // issue #247 评审 RED：close 事件是异步派发的 —— 手动停止后若不摘掉 handler，迟到的 close
+      // 会触发 _onClose ⇒ _scheduleReconnect，多排一次 _connect ⇒ 两条连接同时存活、事件双投。
+      try { this.ws.removeAllListeners(); } catch {}
       try { this.ws.close(1000, 'Manual stop'); } catch {}
       this.ws = null;
     }
@@ -205,10 +206,13 @@ export class WsManager {
       }
 
       // 设置事件处理器（如果是直连成功，open 事件已被 inline listener 消费，需要标记）
-      this.ws.on('open', () => this._onOpen());
-      this.ws.on('message', (data) => this._onMessage(data));
-      this.ws.on('close', (code, reason) => this._onClose(code, reason));
-      this.ws.on('error', (err) => this._onError(err));
+      // issue #247 评审 RED：捕获本 socket 引用并加陈旧判别 —— 只有它仍是当前 ws 时才处理事件，
+      // 避免「已被替换掉的旧连接」继续往 event-pipeline 灌事件（实测会导致事件双投）。
+      const sock = this.ws;
+      sock.on('open', () => { if (this.ws === sock) this._onOpen(); });
+      sock.on('message', (data) => { if (this.ws === sock) this._onMessage(data); });
+      sock.on('close', (code, reason) => { if (this.ws === sock) this._onClose(code, reason); });
+      sock.on('error', (err) => { if (this.ws === sock) this._onError(err); });
 
       // 如果直连已成功但 open 事件已被消费，手动触发 _onOpen
       if (connectedDirectly && this.ws.readyState === WebSocket.OPEN) {
