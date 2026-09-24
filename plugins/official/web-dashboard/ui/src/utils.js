@@ -52,11 +52,14 @@ export function specialLocationLabel(loc) {
   const v = String(loc || "").toLowerCase();
   // 纯特殊值直接给中文名（本地图 / 离线 / 传送）
   const direct = {
+    private: "私人房间",  // 纯值形态（1fdce1f 那天覆盖的情况，不能丢）
     offline: "离线", "offline:offline": "网页在线", traveling: "传送中",
     local: "本地房间", friends: "好友房间", group: "群组房间",
   }[v];
   if (direct) return direct;
   // 2026-09-24 用户定：拿不到信息的那种私人实例显示「私人房间」（能获取到的照常显示）
+  // 两条判据【并存】：①纯值形态（private / offline / traveling…）由上面的 direct 映射覆盖——
+  // 1fdce1f 那天修的就是它，不能删；②带 worldId 的实例串（wrld_xxx:12345~private(usr_xxx)）由下面 parseLoc 覆盖
   // 判据必须走 parseLoc —— 真实位置形如 wrld_xxx:12345~private(usr_xxx)，整串相等永远不命中
   const p = parseLoc(v);
   if (p && (p.type === "private" || p.type === "invite" || p.type === "invite+")) return "私人房间";

@@ -26,3 +26,7 @@ test('specialLocationLabel 必须按解析结果判断，不得只做整串相�
 test('到达行不得挂「传送中」尾巴（用户 2026-09-22 定案：传送中只作独立行）', () => {
   assert.doesNotMatch(feed, /travelingToLocation/, '不得在位置事件里再挂传送中尾巴');
 });
+
+test('纯值形态的 private 也必须给「私人房间」（2026-09-22 那天修的形态，不能被后来的改动吃掉）', () => {
+  assert.match(utils, /private:\s*['"]私人房间['"]/, 'direct 映射里的 private → 私人房间 必须保留');
+});
