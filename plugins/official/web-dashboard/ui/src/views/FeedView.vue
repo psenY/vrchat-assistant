@@ -355,10 +355,6 @@ onUnmounted(() => {
             <Tag v-if="store.feedLoading" value="同步中…" severity="secondary" rounded />
       <!-- 日期+星标在标题行（双端统一）；弹层锚定到点击的按钮 -->
       <span class="vt-actions">
-        <button class="chip date-btn" :class="{ active: hasDateFilter }" @click="datePop.toggle($event)" :aria-label="'日期筛选：' + dateLabel" :title="'日期筛选'">
-          <i :class="hasDateFilter ? 'pi pi-calendar-times' : 'pi pi-calendar'"></i>
-          {{ dateLabel }}
-        </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyFav }" @click="toggleFav" :title="'仅显示星标好友'" aria-label="仅显示星标好友">
           <i :class="store.feedOnlyFav ? 'pi pi-star-fill' : 'pi pi-star'"></i><span v-if="store.favFriendIds && store.favFriendIds.size"> ({{ store.favFriendIds.size }})</span>
         </button>
@@ -367,13 +363,6 @@ onUnmounted(() => {
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyMe }" @click="toggleMeFilter" :title="'仅显示我的事件'" aria-label="仅显示我的事件">
           <i :class="store.feedOnlyMe ? 'pi pi-verified' : 'pi pi-user'"></i>
-        </button>
-        <button v-if="hasAnyFilter" class="chip star-btn" title="清除全部筛选" aria-label="清除全部筛选" @click="clearAllFilters"><i class="pi pi-filter-slash"></i> 清除全部</button>
-        <button v-if="store.feedOnlyWorld" class="chip star-btn star-on" @click="clearWorldFilter" :title="'清除「只看此世界」筛选'" aria-label="清除只看此世界筛选">
-          <i class="pi pi-globe"></i> 只看此世界{{ worldNameOf() ? '：' + worldNameOf().slice(0, 16) : '' }}
-        </button>
-        <button v-if="store.feedOnlyUser" class="chip star-btn star-on" @click="clearUserFilter" :title="'清除「只看此人」筛选'" aria-label="清除只看此人筛选">
-          <i class="pi pi-filter"></i> 此人 {{ store.feedOnlyUser.slice(0, 8) }}…
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyTracked }" @click="toggleTrackedFilter" :title="'仅显示追踪非好友的事件'" aria-label="仅显示追踪非好友的事件">
           <i class="pi pi-users"></i>
@@ -386,6 +375,17 @@ onUnmounted(() => {
     <div class="feed-toolbar">
       <div class="ft-row">
         <div class="ft-chips" role="group" aria-label="事件类型筛选">
+  <button class="chip date-btn" :class="{ active: hasDateFilter }" @click="datePop.toggle($event)" :aria-label="'日期筛选：' + dateLabel" :title="'日期筛选'">
+  <i :class="hasDateFilter ? 'pi pi-calendar-times' : 'pi pi-calendar'"></i>
+  {{ dateLabel }}
+  </button>
+  <button v-if="hasAnyFilter" class="chip star-btn" title="清除全部筛选" aria-label="清除全部筛选" @click="clearAllFilters"><i class="pi pi-filter-slash"></i> 清除全部</button>
+  <button v-if="store.feedOnlyWorld" class="chip star-btn star-on" @click="clearWorldFilter" :title="'清除「只看此世界」筛选'" aria-label="清除只看此世界筛选">
+  <i class="pi pi-globe"></i> 只看此世界{{ worldNameOf() ? '：' + worldNameOf().slice(0, 16) : '' }}
+  </button>
+  <button v-if="store.feedOnlyUser" class="chip star-btn star-on" @click="clearUserFilter" :title="'清除「只看此人」筛选'" aria-label="清除只看此人筛选">
+  <i class="pi pi-filter"></i> 此人 {{ store.feedOnlyUser.slice(0, 8) }}…
+  </button>
           <button v-for="o in filterOptions" :key="o.value" class="chip" :class="{ active: isFilterActive(o.value) }" @click="toggleFilter(o.value)">{{ o.label }}</button>
         </div>
         <div class="ft-search">
