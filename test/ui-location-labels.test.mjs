@@ -1,0 +1,28 @@
+// 位置行 UI 行为的源码级回归护栏（2026-09-24 建）
+//
+// 为什么需要它：这段渲染逻辑在 2026-09-22 一天内被改了 3 次（1fdce1f → 3a2b30c → 上游合并），
+// 每一次重写模板都会静默丢掉前一次接好的调用 —— 用户看到的现象是「明明修过又坏了」，
+// 而当时没有任何测试能发现。这两条断言把"必须存在的行为"钉住，被覆盖时 npm test 直接变红。
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const UI = path.join(HERE, '..', 'plugins', 'official', 'web-dashboard', 'ui', 'src');
+const feed = readFileSync(path.join(UI, 'views', 'FeedView.vue'), 'utf8');
+const utils = readFileSync(path.join(UI, 'utils.js'), 'utf8');
+
+test('位置行必须调用 specialLocationLabel —— 私人房/特殊值的「人话」兜底（用户 2026-09-22 定案）', () => {
+  assert.match(feed, /specialLocationLabel\s*\(/, 'FeedView 必须调用 specialLocationLabel（否则「私人房间 / 离线 / 本地房间」等兜底不会显示）');
+});
+
+test('specialLocationLabel 必须按解析结果判断，不得只做整串相等', () => {
+  assert.match(utils, /parseLoc\(/, 'specialLocationLabel 必须用 parseLoc 判断实例类型（真实位置形如 wrld_xxx:12345~private(usr_xxx)，整串相等永远不命中）');
+  assert.match(utils, /私人房间/, '必须保留「私人房间」文案');
+});
+
+test('到达行不得挂「传送中」尾巴（用户 2026-09-22 定案：传送中只作独立行）', () => {
+  assert.doesNotMatch(feed, /travelingToLocation/, '不得在位置事件里再挂传送中尾巴');
+});
