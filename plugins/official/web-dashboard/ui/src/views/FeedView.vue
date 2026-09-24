@@ -825,6 +825,10 @@ onUnmounted(() => {
 .c-detail > *:last-child, .c-detail > .bio-text, .c-detail > .noti-msg, .c-detail > .noti-read-wrap { flex: 0 1 auto; }
 @media (max-width: 899px) {
   .c-detail { flex-wrap: wrap; overflow: visible; }
+  /* 用户要求：房间信息（公开 · JP · 实例号）放到世界名这条边上。
+     手机端 c-detail 允许换行，世界名那组太长会把 .inst 挤到第二行 ⇒
+     让世界名可收缩（省略号让位），把房间信息留在同一行 */
+  .c-detail .world-link { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .c-detail > * { flex: 0 1 auto; }
 }
 .dim { color: var(--text-dim); white-space: nowrap; }
