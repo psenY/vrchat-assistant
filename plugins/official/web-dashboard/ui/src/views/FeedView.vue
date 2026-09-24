@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { store, setView, openUser, openWorld, openPreview, loadMoreFeed, copyText, openGroup, resetFeed, load } from '../store.js';
-import { time, date, locLabel, statusLabels, trustColor, instanceLabel, avatarLabel, specialLocationLabel } from '../utils.js';
+import { store, setView, openUser, openWorld, openPreview, loadMoreFeed, copyText, openGroup, resetFeed } from '../store.js';
+import { time, date, locLabel, statusLabels, trustColor, instanceLabel, avatarLabel } from '../utils.js';
 import { post } from '../api.js';
 import { toast } from '../toast.js';
 import { statusColor } from '../composables/useFriendGroups.js';
@@ -26,13 +26,6 @@ function sourceLabel(s) {
 }
 
 /* ── 类型定义（对齐 VRCX Feed filters：GPS/Online/Offline/Status/Avatar/Bio）── */
-// 位置行的「从哪来 / 到哪去」（用户 2026-09-22 定：显示「状态 → 状态」）——
-// 左侧优先用**状态中文名**（私人房间/传送中…），否则回退世界名；例：private→private 渲染「私人房间 → 私人房间」。
-function prevLabelOf(e) { return specialLocationLabel(e.previousLocation) || e.previousWorldName || ''; }
-function curIsWorld(e) { return String(e.worldId || '').startsWith('wrld_'); }
-
-import TrustBadge from '../components/TrustBadge.vue';
-
 const filterOptions = [
   { value: 'all', label: '所有' },
   { value: 'location', label: '位置变动' },
@@ -293,7 +286,6 @@ const feedRows = computed(() => {
 
 /* ── 自动加载 ── */
 const FEED_TARGET = 50;
-function retryLoad() { load(); }   // 失败态的重试入口
 // 性能保护（无虚拟滚动）：移动端 DOM 行数上限收紧（中端机挂 400 个复杂行滚动掉帧），
 // 桌面 400。到上限后**只停止自动触底补拉**（静默保护 DOM）；手动"加载更多"按钮始终可用 ✓（2026-09-22 用户要求撤掉对用户可见的上限语义）
 const isMobileDev = () => (typeof window !== 'undefined' && window.innerWidth < 900);
@@ -371,8 +363,7 @@ onUnmounted(() => {
 
     <div class="feed-head">
       <h2><i class="pi pi-bolt"></i> 动态</h2>
-      <span v-if="!store.feedTotal" class="feed-sub">好友活动实时记录</span>
-      <span v-else class="feed-sub" aria-hidden="true"></span>
+      <span class="feed-sub">{{ store.feedTotal ? '数据库共 ' + store.feedTotal + ' 条' : '好友活动实时记录' }}</span>
       <Tag v-if="store.feedLoading" value="同步中…" severity="secondary" rounded />
       <!-- 日期+星标在标题行（双端统一）；弹层锚定到点击的按钮 -->
       <span class="vt-actions">
@@ -398,7 +389,7 @@ onUnmounted(() => {
           <i class="pi pi-filter"></i> 此人 {{ store.feedOnlyUser.slice(0, 8) }}…
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyTracked }" @click="toggleTrackedFilter" :title="'仅显示追踪非好友的事件'" aria-label="仅显示追踪非好友的事件">
-          <i class="pi pi-users"></i>
+          <i class="pi pi-binoculars"></i><span v-if="store.trackedIds.size"> ({{ store.trackedIds.size }})</span>
         </button>
       </span>
       <span class="feed-count" :title="'当前筛选 ' + rows.length + ' / 已加载 ' + store.feedEvents.length + ' / 数据库共 ' + store.feedTotal + ' 条'">{{ rows.length }} / {{ store.feedEvents.length }} / {{ store.feedTotal }}</span>
@@ -422,13 +413,6 @@ onUnmounted(() => {
     <div v-if="store.feedLoading && !store.feedEvents.length" class="feed-loading">
       <ProgressSpinner style="width: 34px; height: 34px" strokeWidth="3" />
       <div class="text-dim">正在加载动态…</div>
-    </div>
-    <!-- 2026-09-22：加载失败必须与「暂无动态」区分开（否则用户以为真的没有数据） -->
-    <div v-if="store.loadError" class="empty">
-      <i class="pi pi-exclamation-triangle empty-icon" aria-hidden="true"></i>
-      <template>加载失败：{{ store.loadError }}</template>
-      <small>多半是网络/入口（公网反代）问题——可点下方重试；若持续失败请查服务状态</small>
-      <div style="margin-top:10px"><Button label="重试" size="small" icon="pi pi-refresh" @click="retryLoad()" /></div>
     </div>
     <div v-else-if="!rows.length" class="empty">
       <i class="pi pi-bolt empty-icon" aria-hidden="true"></i>
@@ -468,22 +452,17 @@ onUnmounted(() => {
               <span class="dim">传送中</span>
             </template>
             <template v-else>
-
-            <!-- 用户 2026-09-22 定：位置行显示「状态 → 状态」——私人房之间切换就该是「私人房间 → 私人房间」；
-                 左侧取**上一条真实位置**（后端已跳过 traveling/offline），非世界形态用中文名、且即使两边相同也显示箭头。 -->
-            <template v-if="prevLabelOf(x) && (curIsWorld(x) ? prevLabelOf(x) !== x.worldName : true)">
-              <!-- 左侧样式按**左边自己是不是世界**判（用户 2026-09-22：从世界进私人房时左边不该变灰）——
-                   目的地是不是世界只影响右侧标签，与左侧的链接/缩略图无关。 -->
-              <img v-if="x.previousWorldImageUrl && x.previousWorldId" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
-              <span v-if="x.previousWorldId" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ prevLabelOf(x) }}</span>
-              <span v-else class="dim">{{ prevLabelOf(x) }}</span>
+            <template v-if="x.previousWorldName && x.previousWorldName !== x.worldName">
+              <img v-if="x.previousWorldImageUrl" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
+              <span v-if="x.previousWorldId" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
+              <span v-else class="dim">{{ x.previousWorldName }}</span>
               <span class="arr">→</span>
             </template>
             <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
             <span v-if="x.worldName" class="world-link" @click="openWorld(x.worldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.worldId)">{{ x.worldName }}</span>
-            <span v-else-if="x.location" class="dim">{{ specialLocationLabel(x.location) || locLabel(x.location) || x.location }}</span>
+            <span v-else-if="x.location" class="dim">{{ locLabel(x.location) || x.location }}</span>
             <span v-if="x.instanceType || x.region || x.instanceId" class="inst mono">{{ instanceLabel(x.instanceType) }}{{ x.region ? ' · ' + x.region.toUpperCase() : '' }}{{ x.instanceId ? ' · ' + x.instanceId : '' }}</span>
-            <!-- 到达行不再挂「传送中」尾巴（用户 2026-09-22：传送中已有独立行，这里挂着会读成"状态是传送中"） -->
+            <span v-if="x.travelingToLocation" class="dim">传送中</span>
             </template>
           </template>
 
@@ -571,7 +550,7 @@ onUnmounted(() => {
             <span class="dim">更新了头像图标</span>
             <img v-if="x.previousUserIcon" class="uicon" :src="x.previousUserIcon" alt="" loading="lazy" />
             <span v-if="x.previousUserIcon && x.userIcon" class="av-arrow" aria-hidden="true">→</span>
-            <img v-if="x.userIcon" class="uicon" :src="x.userIcon" alt="" loading="lazy"  />
+            <img v-if="x.userIcon" class="uicon" :src="x.userIcon" alt="" loading="lazy" @click="openPreview(x.userIcon)" />
             <span v-if="!x.previousUserIcon && !x.userIcon" class="dim">（图片未取到）</span>
           </template>
 
@@ -582,14 +561,7 @@ onUnmounted(() => {
 
           <!-- 信任等级变更 -->
           <template v-else-if="typeOf(x) === 'trustLevel'">
-            <!-- 用户 2026-09-22：有盾牌徽章就不必再写「信任等级：」-->
-            <!-- 用户 2026-09-22：等级变更用面板既有的描边盾牌徽章（components/TrustBadge.vue）呈现，
-                 而不是纯文本「Known User → Trusted User」。空值仍显式写 (空)，避免看起来像"没记录"。 -->
-            <span v-if="!x.previousTrustLevel" class="dim">(空)</span>
-            <TrustBadge v-else :level="x.previousTrustLevel" />
-            <span class="arr">→</span>
-            <span v-if="!x.trustLevel" class="dim">(空)</span>
-            <TrustBadge v-else :level="x.trustLevel" />
+            <span class="dim">信任等级：</span><span>{{ x.previousTrustLevel || '(空)' }} → {{ x.trustLevel || '(空)' }}</span>
           </template>
 
           <!-- 改名 -->
@@ -643,7 +615,7 @@ onUnmounted(() => {
 
           <!-- 下线：对账补记的显示掉线窗口（非 WS 实时推送） -->
           <template v-else-if="typeOf(x) === 'offline' && x.reconcile">
-            <span v-if="x.offlineWindowStart" class="dim">{{ time(x.offlineWindowStart) }} 之后离线（{{ time(x.reconcileDetectedAt) }} 对账确认）</span>
+            <span v-if="x.offlineWindowStart" class="dim">API 掉线期间离线（{{ time(x.offlineWindowStart) }} ~ {{ time(x.reconcileDetectedAt) }}）</span>
             <span v-else class="dim">对账确认离线（{{ time(x.reconcileDetectedAt) }}）</span>
           </template>
 
@@ -667,7 +639,7 @@ onUnmounted(() => {
             <Button size="small" text icon="pi pi-filter" label="只看此世界" @click.stop="filterByWorld(x)" />
             <Button icon="pi pi-copy" text rounded :aria-label="'复制世界 ID'" @click="copyText(x.worldId)" /></div>
           <div v-if="x.location && !['offline', 'offline:offline', 'traveling'].includes(x.location)" class="ed-cell"><span>实例</span>
-            <b class="mono ed-id">{{ specialLocationLabel(x.location) || locLabel(x.location) || x.location }}</b>
+            <b class="mono ed-id">{{ locLabel(x.location) || x.location }}</b>
             <Button icon="pi pi-copy" text rounded :aria-label="'复制实例位置'" @click="copyText(x.location)" /></div>
           <div v-if="x.avatarName || x.avatarId" class="ed-cell"><span>模型</span>
             <b class="ed-ellip">{{ x.avatarName || '未知模型' }}</b>
@@ -686,7 +658,7 @@ onUnmounted(() => {
             <b class="ed-ellip">{{ x.previousPronouns || '(空)' }} → {{ x.pronouns || '(空)' }}</b></div>
           <div v-if="x.updateType === 'user_icon'" class="ed-cell"><span>头像图标</span>
             <b class="ed-ellip">{{ x.previousUserIcon ? '已更换' : '已设置' }}</b>
-            <img v-if="x.userIcon" class="uicon" :src="x.userIcon" alt="" loading="lazy"  /></div>
+            <img v-if="x.userIcon" class="uicon" :src="x.userIcon" alt="" loading="lazy" @click="openPreview(x.userIcon)" /></div>
           <div v-if="x.previousStatus && x.previousStatus !== x.status" class="ed-cell"><span>状态</span>
             <span class="slamp" :style="{ background: statusColor(x.previousStatus) }" :title="statusText(x.previousStatus)"></span>
             <span class="arr">→</span>
@@ -764,8 +736,7 @@ onUnmounted(() => {
 .search-clear { font-size: 10px; color: var(--text-dim); cursor: pointer; padding: 2px; flex: none; }
 .search-clear:hover { color: var(--text); }
 .feed-sub { font-size: 11px; color: var(--text-dim); flex: 1; min-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* 2026-09-23 用户反馈「错位了」：.feed-count 靠 margin-left:auto 靠右，但一行挤满时 auto 会退化成 0 ⇒ 与图标组贴死 ⇒ 加固定间距兜底 */
-.feed-count { padding-left: 10px; margin-left: auto; color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.feed-count { margin-left: auto; color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* C4 窄窗口：计数保持行内、贴最右（不换行独占） */
 @media (min-width: 900px) and (max-width: 1280px) {
   .feed-count { flex-basis: auto; margin-left: auto; text-align: right; max-width: 40%; }
@@ -783,9 +754,13 @@ onUnmounted(() => {
 /* 筛选 chip：视觉语言统一走全局 .chip（style.css），此处仅保留本页私有覆盖 */
 .date-btn i { font-size: 11px; }
 .date-btn.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
-/* 2026-09-23 issue #244：原为固定 width:30px（只适合纯图标方按钮），但被 4 个带文字的按钮复用
-   ⇒ 文字会溢出胶囊（.chip 的 overflow 是 visible）。改为 min-width + auto：图标按钮仍是 30px 方形，带文字的按内容撑开 */
-.star-btn { min-width: 30px; width: auto; padding: 0 8px; justify-content: center; }
+/* 仅图标按钮保持方形、带文字/计数的同类 chip（清除全部、只看此世界、此人、星标/追踪计数）按内容撑开。
+   注意：min-width 必须**替换** width —— 只追加 min-width 而不删 width 等于没修（宽度仍恒为 30px）。
+   本规则**不写 padding**：纯图标态宽度由 `.vt-actions .chip` 系列规则提供（同特异性、打包后更靠后 ⇒ 胜出），
+   此处写了也不生效、只会误导读者。实测（运行中真实构建产物的同一张样式表 + 含 scope 属性的真实 DOM，
+   宽度含 1px 边框）：纯图标 >1280px = 34px（padding 10px）/ 900–1280px = 30px（8px）/ ≤899px = 38px（12px）；
+   带文字/计数 chip 修前横向外溢 14–19px，修后三个断点均归零。 */
+.star-btn { min-width: 30px; justify-content: center; }
 .star-btn i { font-size: 12px; }
 .star-btn.star-on { color: var(--star); border-color: color-mix(in srgb, var(--star) 40%, var(--border)); }
 .date-cal { padding: 6px; }
@@ -861,6 +836,7 @@ onUnmounted(() => {
 .dim { color: var(--text-dim); white-space: nowrap; }
 .arr { color: var(--text-dim); opacity: 0.6; font-size: 11px; }
 .world-link {
+.uicon { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; cursor: pointer; }
   color: var(--accent-2);
   cursor: pointer;
   padding: 1px 5px;
@@ -868,10 +844,6 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--accent-2) 10%, transparent);
   white-space: nowrap;
 }
-.uicon { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; cursor: pointer; }
-/* 2026-09-22 用户报障「雷霆大头像还在」：行内任何图片一律封顶（防老/迁移数据里未受约束的图撑破整行 ✗）；
-   预览弹窗在行之外，不受此规则影响 ✓ */
-.ev-row img { max-width: 48px; max-height: 48px; object-fit: contain; }
 .world-link:hover { background: color-mix(in srgb, var(--accent-2) 22%, transparent); }
 .inst { color: var(--text-dim); font-size: 10.5px; background: var(--surface-3); padding: 1px 6px; border-radius: 5px; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
@@ -994,7 +966,6 @@ onUnmounted(() => {
 .noti-read-wrap.noti-msg-link .noti-msg-inline { color: var(--accent-2); }
 
 .feed-more { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0; }
-.feed-more-err { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px; color: var(--text-dim); font-size: 12.5px; }
 .feed-end { font-size: 11px; color: var(--text-dim); opacity: 0.7; }
 
 /* B3 展开详情 */
