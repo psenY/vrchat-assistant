@@ -43,6 +43,7 @@
 | 08-25 | v3.0.0 | **插件化架构大版本正式版（beta 转正）+ X 源头浏览器抓取（Playwright）+ Node 22 对齐** |
 | 08-26 | v3.1.0 | **favorites 收藏夹管理补全（VRC+ 支持）+ auth-guard 鉴权/Docker 容器化 + events 社区活动聚合 + data/ 目录化迁移 + 测试配套修复（+10 工具）** |
 | 09-02 | v3.2.0-beta | **结构化日志模块（分级/双通道/双格式/轮转/脱敏，零依赖）+ 当日修复集群（#125-132：avatar 模型名/t.co 短链/friend-delete/收藏夹编号）+ 周报同屏/rateLimiter 超时/事件队列根治/登录页40项/SSE瘦身（#113-#124）** |
+| 09-23 | v3.3.0 | **Web Dashboard 大修（首屏 4 接口合并为一次往返 6-9s→2.20s、错误边界+鉴权守卫、失败不再伪装成正常结论、令牌改走 `Authorization` 头）+ 4 个新官方插件（redeem / emoji-notes / friend-removals / presence-status）+ 非好友追踪页成体系（联动/备注/信任等级/模型名）+ 可观测性延续（外部调用留痕、systemd 协同、日志降噪）+ 工程基建（前端产物出库、npm test 全量进 CI）；21 个 open PR 批次合并，+18 工具零移除** |
 
 ## 活跃贡献者
 
@@ -54,6 +55,11 @@
 | Sand-85 | 活跃贡献者 | BOOTH 检索、search_users、展示 skill |
 | psenY | 核心贡献者 | 协作审核、Web Dashboard 前端（登录页/头像/触控/事件类型抽取/收藏夹）、监控修复 |
 | 268500tao | 贡献者 | X 世界推荐抓取、t.co 短链解包 |
+| XiaoCoaiX | 活跃贡献者 | redeem 兑换插件（兑换码/礼包/库存）、presence-status 自我在场三态 |
+| CyberNekokoya | 活跃贡献者 | friend-removals 插件（「谁把我删了」）、AGENT-REVIEW 协议补充 |
+| EMeowAGENT | 贡献者（agent） | 日志与 systemd/journald 协同（级别前缀/文件开关/单元护栏） |
+| Lian-Hu-Agent | 贡献者（agent） | social 自配对查询（`get_friend_pair_screen` self-pair） |
+| anupamme | 贡献者 | `plugin_api.py` 安全修复 |
 
 ## 维护规则（给每日扫描任务）
 
