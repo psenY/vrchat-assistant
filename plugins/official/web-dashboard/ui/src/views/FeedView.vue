@@ -445,10 +445,12 @@ onUnmounted(() => {
               <span v-else class="dim">{{ x.previousWorldName }}</span>
               <span class="arr">→</span>
             </template>
-            <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
-            <span v-if="x.worldName" class="world-link" @click="openWorld(x.worldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.worldId)">{{ x.worldName }}</span>
-            <span v-else-if="x.location" class="dim">{{ locLabel(x.location) || x.location }}</span>
-            <span v-if="x.instanceType || x.region || x.instanceId" class="inst mono">{{ instanceLabel(x.instanceType) }}{{ x.region ? ' · ' + x.region.toUpperCase() : '' }}{{ x.instanceId ? ' · ' + x.instanceId : '' }}</span>
+<span class="dest-group">
+              <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
+              <span v-if="x.worldName" class="world-link" @click="openWorld(x.worldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.worldId)">{{ x.worldName }}</span>
+              <span v-else-if="x.location" class="dim">{{ locLabel(x.location) || x.location }}</span>
+              <span v-if="x.instanceType || x.region || x.instanceId" class="inst mono">{{ instanceLabel(x.instanceType) }}{{ x.region ? ' · ' + x.region.toUpperCase() : '' }}{{ x.instanceId ? ' · ' + x.instanceId : '' }}</span>
+</span>
             <span v-if="x.travelingToLocation" class="dim">传送中</span>
             </template>
           </template>
@@ -847,6 +849,8 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .world-link:hover { background: color-mix(in srgb, var(--accent-2) 22%, transparent); }
+/* 目的地组：世界名 + 房间信息绑成不可拆的一组 ⇒ 房间信息不再被挤到单独一行（用户要求）*/
+.dest-group { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 auto; }
 .inst { color: var(--text-dim); font-size: 10.5px; background: var(--surface-3); padding: 1px 6px; border-radius: 5px; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
 /* 状态灯 */
