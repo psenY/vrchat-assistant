@@ -828,7 +828,11 @@ onUnmounted(() => {
   /* 用户要求：房间信息（公开 · JP · 实例号）放到世界名这条边上。
      手机端 c-detail 允许换行，世界名那组太长会把 .inst 挤到第二行 ⇒
      让世界名可收缩（省略号让位），把房间信息留在同一行 */
-  .c-detail .world-link { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 让世界名那一段的【任何】文本形态都能收缩让位（原来只处理了 .world-link，
+     而"上一个世界名"在无 worldId 时是 .dim ⇒ 那个不可缩，仍会把房间信息挤下去）*/
+  .c-detail > .world-link, .c-detail > .dim {
+    min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .c-detail > * { flex: 0 1 auto; }
 }
 .dim { color: var(--text-dim); white-space: nowrap; }
