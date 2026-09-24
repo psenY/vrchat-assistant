@@ -453,7 +453,6 @@ onUnmounted(() => {
               <span v-else-if="x.location" class="dim">{{ locLabel(x.location) || x.location }}</span>
               <span v-if="x.instanceType || x.region || x.instanceId" class="inst mono">{{ instanceLabel(x.instanceType) }}{{ x.region ? ' · ' + x.region.toUpperCase() : '' }}{{ x.instanceId ? ' · ' + x.instanceId : '' }}</span>
 </span>
-            <span v-if="x.travelingToLocation" class="dim">传送中</span>
             </template>
           </template>
 
