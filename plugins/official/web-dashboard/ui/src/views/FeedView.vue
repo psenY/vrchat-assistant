@@ -122,18 +122,7 @@ function toggleFav() {
 function toggleWatchFilter() {
   store.feedOnlyWatch = !store.feedOnlyWatch;
 }
-function exportRows() {
-  const list = rows.value || [];
-  if (!list.length) { toast('当前无事件可导出', 'warn'); return; }
-  const blob = new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'vrchat-events-' + new Date().toISOString().slice(0, 10) + '.json';
-  a.click();
-  URL.revokeObjectURL(url);
-  toast('已导出 ' + list.length + ' 条事件', 'success');
-}
+
 
 function toggleTrackedFilter() {
   store.feedOnlyTracked = !store.feedOnlyTracked;
@@ -380,7 +369,6 @@ onUnmounted(() => {
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyMe }" @click="toggleMeFilter" :title="'仅显示我的事件'" aria-label="仅显示我的事件">
           <i :class="store.feedOnlyMe ? 'pi pi-verified' : 'pi pi-user'"></i>
         </button>
-        <button class="chip star-btn" title="导出当前筛选结果（JSON）" aria-label="导出当前筛选结果" @click="exportRows"><i class="pi pi-download"></i></button>
         <button v-if="hasAnyFilter" class="chip star-btn" title="清除全部筛选" aria-label="清除全部筛选" @click="clearAllFilters"><i class="pi pi-filter-slash"></i> 清除全部</button>
         <button v-if="store.feedOnlyWorld" class="chip star-btn star-on" @click="clearWorldFilter" :title="'清除「只看此世界」筛选'" aria-label="清除只看此世界筛选">
           <i class="pi pi-globe"></i> 只看此世界{{ worldNameOf() ? '：' + worldNameOf().slice(0, 16) : '' }}
