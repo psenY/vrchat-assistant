@@ -30,3 +30,10 @@ test('到达行不得挂「传送中」尾巴（用户 2026-09-22 定案：传�
 test('纯值形态的 private 也必须给「私人房间」（2026-09-22 那天修的形态，不能被后来的改动吃掉）', () => {
   assert.match(utils, /private:\s*['"]私人房间['"]/, 'direct 映射里的 private → 私人房间 必须保留');
 });
+
+test('位置行左端必须走 prevLabelOf（私人房 → 私人房间 那一半，用户 2026-09-22 定案）', () => {
+  assert.match(feed, /function prevLabelOf\(/, 'FeedView 必须定义 prevLabelOf');
+  assert.match(feed, /prevLabelOf\(x\)/, 'FeedView 模板必须使用 prevLabelOf');
+  assert.match(feed, /function curIsWorld\(/, 'FeedView 必须定义 curIsWorld');
+  assert.match(feed, /specialLocationLabel\(e\.previousLocation\)/, 'prevLabelOf 必须对 previousLocation 走 specialLocationLabel');
+});

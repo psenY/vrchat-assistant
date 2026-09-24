@@ -25,6 +25,11 @@ function sourceLabel(s) {
   return s || '—';
 }
 
+// 位置行的「从哪来 / 到哪去」（用户 2026-09-22 定：显示「状态 → 状态」）——
+// 左侧优先用**状态中文名**（私人房间/传送中…），否则回退世界名；例：private→private 渲染「私人房间 → 私人房间」。
+// 2026-09-24 用户复查时指出这两条被后来的重写吃掉了 ⇒ 恢复，并加护栏测试锁住。
+function prevLabelOf(e) { return specialLocationLabel(e.previousLocation) || e.previousWorldName || ''; }
+function curIsWorld(e) { return String(e.worldId || '').startsWith('wrld_'); }
 /* ── 类型定义（对齐 VRCX Feed filters：GPS/Online/Offline/Status/Avatar/Bio）── */
 const filterOptions = [
   { value: 'all', label: '所有' },
@@ -439,11 +444,11 @@ onUnmounted(() => {
               <span class="dim">传送中</span>
             </template>
             <template v-else>
-            <template v-if="x.previousWorldName && x.previousWorldName !== x.worldName">
+            <template v-if="prevLabelOf(x) && (curIsWorld(x) ? prevLabelOf(x) !== x.worldName : true)">
   <span class="src-group">
-                <img v-if="x.previousWorldImageUrl" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
-                <span v-if="x.previousWorldId" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
-                <span v-else class="dim">{{ x.previousWorldName }}</span>
+                <img v-if="x.previousWorldImageUrl && curIsWorld(x)" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
+                <span v-if="x.previousWorldId && curIsWorld(x)" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
+                <span v-else class="dim">{{ prevLabelOf(x) }}</span>
                 <span class="arr">→</span>
   </span>
             </template>
