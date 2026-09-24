@@ -704,6 +704,10 @@ onUnmounted(() => {
 }
 .ft-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ft-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1 1 320px; min-width: 0; }
+/* 布局：类型筛选 chips 保持完整一行；空间不足时【搜索框】先换行并整行独占
+   两段选择器 ⇒ scoped 编译后特异性高于 .ft-search[data-v]，才能真正生效 */
+.ft-row .ft-chips { flex: 0 1 auto; min-width: 0; order: 1; }
+.ft-row .ft-search { flex: 1 1 320px; max-width: none; order: 2; }
 .ft-search {
   flex: none;
   max-width: 210px;
@@ -734,9 +738,6 @@ onUnmounted(() => {
 
 /* C4 桌面窄窗口：标题行与工具栏所有元素一起弹性收缩换行，不再只有 chips 独自动 */
 @media (min-width: 900px) and (max-width: 1280px) {
-  /* 中档宽度：搜索框整行独占（换行由搜索框承担，而不是类型 chips 折两行）*/
-  .ft-search { flex-basis: 100%; max-width: none; order: 2; }
-  .ft-chips { flex: 1 1 auto; order: 1; }
   .feed-head { flex-wrap: wrap; row-gap: 4px; }
   .vt-actions .chip { padding: 4px 8px; }
   .ft-row { row-gap: 6px; }
