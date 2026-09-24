@@ -440,10 +440,12 @@ onUnmounted(() => {
             </template>
             <template v-else>
             <template v-if="x.previousWorldName && x.previousWorldName !== x.worldName">
-              <img v-if="x.previousWorldImageUrl" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
-              <span v-if="x.previousWorldId" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
-              <span v-else class="dim">{{ x.previousWorldName }}</span>
-              <span class="arr">→</span>
+  <span class="src-group">
+                <img v-if="x.previousWorldImageUrl" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
+                <span v-if="x.previousWorldId" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
+                <span v-else class="dim">{{ x.previousWorldName }}</span>
+                <span class="arr">→</span>
+  </span>
             </template>
 <span class="dest-group">
               <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
@@ -850,7 +852,7 @@ onUnmounted(() => {
 }
 .world-link:hover { background: color-mix(in srgb, var(--accent-2) 22%, transparent); }
 /* 目的地组：世界名 + 房间信息绑成不可拆的一组 ⇒ 房间信息不再被挤到单独一行（用户要求）*/
-.dest-group { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 auto; }
+.dest-group, .src-group { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 auto; }
 .inst { color: var(--text-dim); font-size: 10.5px; background: var(--surface-3); padding: 1px 6px; border-radius: 5px; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
 /* 状态灯 */
