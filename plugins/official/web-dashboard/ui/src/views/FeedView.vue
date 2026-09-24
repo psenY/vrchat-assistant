@@ -689,6 +689,9 @@ onUnmounted(() => {
 
 <style scoped>
 .feed-view { padding: 4px; }
+.feed-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.feed-head h2 { margin: 0; }
+
 .feed-toolbar {
   margin-bottom: 12px;
   /* 长列表滚动时筛选工具栏吸顶（相对 .main-viewport 滚动容器），随时切换筛选不用滚回顶部 */
@@ -731,6 +734,9 @@ onUnmounted(() => {
 
 /* C4 桌面窄窗口：标题行与工具栏所有元素一起弹性收缩换行，不再只有 chips 独自动 */
 @media (min-width: 900px) and (max-width: 1280px) {
+  /* 中档宽度：搜索框整行独占（换行由搜索框承担，而不是类型 chips 折两行）*/
+  .ft-search { flex-basis: 100%; max-width: none; order: 2; }
+  .ft-chips { flex: 1 1 auto; order: 1; }
   .feed-head { flex-wrap: wrap; row-gap: 4px; }
   .vt-actions .chip { padding: 4px 8px; }
   .ft-row { row-gap: 6px; }
