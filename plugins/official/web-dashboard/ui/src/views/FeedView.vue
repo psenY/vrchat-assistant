@@ -707,7 +707,7 @@ onUnmounted(() => {
 /* 布局：类型筛选 chips 保持完整一行；空间不足时【搜索框】先换行并整行独占
    两段选择器 ⇒ scoped 编译后特异性高于 .ft-search[data-v]，才能真正生效 */
 .ft-row .ft-chips { flex: 0 1 auto; min-width: 0; order: 1; }
-.ft-row .ft-search { flex: 1 1 320px; max-width: none; order: 2; }
+.ft-row .ft-search { flex: 1 1 160px; min-width: 140px; max-width: none; order: 2; }
 .ft-search {
   flex: none;
   max-width: 210px;
