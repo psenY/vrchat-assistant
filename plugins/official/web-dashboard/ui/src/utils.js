@@ -59,7 +59,7 @@ export function specialLocationLabel(loc) {
   // 2026-09-24 用户定：拿不到信息的那种私人实例显示「私人房间」（能获取到的照常显示）
   // 判据必须走 parseLoc —— 真实位置形如 wrld_xxx:12345~private(usr_xxx)，整串相等永远不命中
   const p = parseLoc(v);
-  if (p && (p.type === "private" || p.type === "invite" || p.type === "invite+" || p.type === "hidden")) return "私人房间";
+  if (p && (p.type === "private" || p.type === "invite" || p.type === "invite+")) return "私人房间";
   return "";
 }
 
