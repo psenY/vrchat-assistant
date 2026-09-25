@@ -598,6 +598,11 @@ export function registerDashboardServices(loader, ctx) {
         { url: ev.avatarImageUrl, key: 'avatarName' },
         { url: ev.previousAvatarImageUrl, key: 'previousAvatarName' },
       ];
+      // 2026-09-25（用户报障「换模型全是未知模型」）：上游已移除 avatarImageUrl / currentAvatarImageUrl
+      // ⇒ ev.avatarImageUrl 实测近 2 天 392 条只有 13 条有值 ⇒ 下面 if (!j.url) continue 直接跳过
+      // ⇒ 补名循环一条都收不到 ⇒ 永远「未知模型」（而缓存里其实有 645 个真名，链是通的）。
+      // 兜底：用 userIcon（与用户 iconUrl 同源，一直有值）解 fileId 去补同一个 avatarName。
+      if (!ev.avatarImageUrl && ev.userIcon) jobs.push({ url: ev.userIcon, key: 'avatarName' });
       for (const j of jobs) {
         if (!j.url) continue;
         // j.url 已过 imgProxy 代理（/api/dashboard/image-proxy?url=<encodeURIComponent(原URL)>），
