@@ -621,7 +621,15 @@ export function registerDashboardServices(loader, ctx) {
       // ⇒ ev.avatarImageUrl 实测近 2 天 392 条只有 13 条有值 ⇒ 下面 if (!j.url) continue 直接跳过
       // ⇒ 补名循环一条都收不到 ⇒ 永远「未知模型」（而缓存里其实有 645 个真名，链是通的）。
       // 兜底：用 userIcon（与用户 iconUrl 同源，一直有值）解 fileId 去补同一个 avatarName。
-      if (!ev.avatarImageUrl && ev.userIcon) jobs.push({ url: ev.userIcon, key: 'avatarName' });
+      // 用户 2026-09-25 报障：VRCX Luo 能显示模型名，我们显示「未知模型」。
+      // 差别在于【它主动去取】——我们只等推送带 avatarImageUrl。载荷没带时：
+      // ① 优先回落到该好友【最近一次带图的事件】（那才是模型图，lastKnownAvatarUrl 现成）；
+      // ② userIcon 只是最后兜底 —— 它往往是用户头像图（非模型图），解出的 fileId 查不到模型名。
+      if (!ev.avatarImageUrl) {
+        const lk = lastKnownAvatarUrl(ev.userId);
+        if (lk) jobs.push({ url: lk, key: 'avatarName' });
+        else if (ev.userIcon) jobs.push({ url: ev.userIcon, key: 'avatarName' });
+      }
       for (const j of jobs) {
         if (!j.url) continue;
         // j.url 已过 imgProxy 代理（/api/dashboard/image-proxy?url=<encodeURIComponent(原URL)>），
