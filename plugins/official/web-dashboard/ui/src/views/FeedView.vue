@@ -853,7 +853,6 @@ onUnmounted(() => {
 .dim { color: var(--text-dim); white-space: nowrap; }
 .arr { color: var(--text-dim); opacity: 0.6; font-size: 11px; }
 .world-link {
-.uicon { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; cursor: pointer; }
   color: var(--accent-2);
   cursor: pointer;
   padding: 1px 5px;
@@ -861,6 +860,7 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--accent-2) 10%, transparent);
   white-space: nowrap;
 }
+.uicon { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; cursor: pointer; }
 .world-link:hover { background: color-mix(in srgb, var(--accent-2) 22%, transparent); }
 /* 目的地组：世界名 + 房间信息绑成不可拆的一组 ⇒ 房间信息不再被挤到单独一行（用户要求）*/
 .dest-group, .src-group { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 auto; }
