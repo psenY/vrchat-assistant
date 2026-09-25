@@ -338,7 +338,9 @@ export function registerDashboardServices(loader, ctx) {
           let cj = {};
           try { cj = JSON.parse(row.content_json || '{}'); } catch { /* malformed */ }
           const loc = cj.location || '';
-          if (!loc || loc === 'traveling' || loc === 'offline' || loc === 'offline:offline') continue;
+          // 用 startsWith 而不是 === ：VRChat 的「传送中」实际形态是 traveling:traveling
+          // （2026-09-25 实测），精确匹配会漏 ⇒ prev 落在没有 world 的那条上 ⇒ 左端名/图全空。
+          if (!loc || loc.startsWith('traveling') || loc === 'offline' || loc === 'offline:offline') continue;
           const worldId = cj.world?.id || (loc.startsWith('wrld_') ? loc.split(':')[0] : '');
           // 缓存优先（与右端同口径）⇒ 私人房也能显示世界名与缩略图
           const cachedName = row.wc_name || '';
