@@ -645,6 +645,7 @@ export function registerDashboardServices(loader, ctx) {
       }
       if (pending.length >= 6) break;
     }
+    const avListTried = new Set();   // 兜底2 去重：每个作者每次请求最多一次列表查询
     if (pending.length) {
       // 后台补名字（走限流器，不阻塞本次响应；补完下次请求即命中）
       (async () => {
@@ -676,6 +677,24 @@ export function registerDashboardServices(loader, ctx) {
                   try { ctx.storage.setPlanetCache(`avimg:${fileId}`, { avatarId, at: Date.now() }); } catch { /* 落盘失败不影响本轮解析 */ }
                 }
               } catch { /* 查询失败按无映射处理（走既有负缓存，6h 后才重试） */ }
+            }
+            // 2026-09-25 兜底2（VRCX 同款做法）：拉作者的头像列表，按【头像图 fileId】直接写结果缓存——
+            // /users 已不带 currentAvatar（实测），这是剩下的公开 fileId→name 来源。
+            // 每个作者在一次请求内最多打一次，仍走限流器；失败维持既有负缓存行为。
+            if (!avatarId && ev.userId && !avListTried.has(ev.userId)) {
+              avListTried.add(ev.userId);
+              try {
+                const ar = await ctx.rateLimiter.execute(() => ctx.api._request('GET', `/avatars?authorId=${encodeURIComponent(ev.userId)}&sort=createdAt&order=descending&n=100`));
+                const list = (ar && ar.status === 200 && Array.isArray(ar.data)) ? ar.data : [];
+                for (const av of list) {
+                  const nmRaw = av && av.name ? String(av.name).trim() : '';
+                  const af = (nmRaw && av.imageUrl) ? avatarFileId(av.imageUrl) : '';
+                  if (af) {
+                    anCache.set(af, nmRaw);
+                    try { ctx.storage.setPlanetCache(`avatar_name:${af}`, { name: nmRaw, at: Date.now() }); } catch { /* 落盘失败仅内存生效 */ }
+                  }
+                }
+              } catch { /* 接口不通/无权限：维持负缓存，6h 后自动再试 */ }
             }
             const a = avatarId
               ? await ctx.rateLimiter.execute(() => ctx.api._request('GET', `/avatars/${encodeURIComponent(avatarId)}`))
