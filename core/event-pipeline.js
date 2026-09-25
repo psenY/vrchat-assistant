@@ -279,7 +279,10 @@ export class EventPipeline {
         if (avatarChanged) {
           changes.push({ type: 'avatar', payload: {
             avatarName: userObj.currentAvatarName || '',
-            avatarImageUrl: userObj.currentAvatarImageUrl || '',
+            // 2026-09-25（用户报障「换模型全是未知模型」）：上游已移除 currentAvatarImageUrl，
+            // 检测用的 newAvatarUrl（iconUrl / bannerType=avatarBanner 的模型图）才是可用的那个 ⇒
+            // 写进 payload 时也必须用它，否则补名循环永远拿不到 fileId（实测 7 条里 6 条三源全空）。
+            avatarImageUrl: newAvatarUrl || userObj.currentAvatarImageUrl || '',
             avatarThumbnailUrl: userObj.currentAvatarThumbnailImageUrl || '',
             previousAvatarImageUrl: prev.avatar_image_url || '',
             // previousAvatarThumbnailUrl 省略：缩略图无独立存储列，无法取到正确旧缩略图，
