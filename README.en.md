@@ -110,6 +110,11 @@ QQ Group: **851865556** — join for usage questions, feature suggestions, and f
 
 If you find this project useful, feel free to buy me a coffee:
 
+- ☕ **Ko-fi** (international / credit card / PayPal):
+
+  [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/S7Y527MI45)
+- China: WeChat Pay / Alipay (QR codes below)
+
 ![QR codes](assets/sponsor-qrcodes.png)
 
 **Please fund my tokens** 🙏
