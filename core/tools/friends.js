@@ -10,7 +10,12 @@ export async function handleGetOnlineFriends() {
   const r = await api._request('GET', '/auth/user/friends?offline=false');
   if (r.status !== 200) throw new Error(`API error: ${r.status}`);
   const friends = Array.isArray(r.data) ? r.data : [];
-  const online = friends.filter(f => f.location && f.location !== 'offline');
+  // 在线口径与 friendState 一致：含「网页在线」（VRC_MONITOR_ONLINE_INCLUDE_WEB，默认计入）
+  // VRChat 转网页/App 在线时只发 friend-active{platform:'web'}（不发 friend-offline），REST 返回
+  // platform='web' + location='offline' ⇒ 只按 location 过滤会把这些好友算成离线。
+  const includeWeb = Number(process.env.VRC_MONITOR_ONLINE_INCLUDE_WEB) !== 0;
+  const online = friends.filter((f) => (f.location && f.location !== 'offline')
+    || (includeWeb && isWebPresence(f.platform)));
 
   const nicknames = storage.getNicknames({});
   const nicknameMap = new Map();
