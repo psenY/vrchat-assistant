@@ -395,7 +395,13 @@ export function registerDashboardServices(loader, ctx) {
       const world = content.world || {};
       const worldId = row.world_id || content.worldId || world.id || '';
       const worldName = row.world_name || world.name || '';
-      const location = content.location || '';
+      const rawLocation = content.location || '';
+      // ⚠️ VRChat 的「传送中」实际推的是 `traveling:traveling`（不是纯 `traveling`）——
+      //    它既躲过 parseLocInfo 的特殊值特判（instType 回落成 public、instId 变成 traveling），
+      //    也躲过前端 `x.location === 'traveling'` 的判断 ⇒ 位置行渲染成荒谬的「公开 · traveling」
+      //    （2026-09-25 用户报障「什么叫公开传送中」）。在 DTO 层统一规范化：一处改、
+      //    对历史事件同样生效（不必回溯改库），前端无需改动。
+      const location = rawLocation === 'traveling:traveling' ? 'traveling' : rawLocation;
       const locInfo = parseLocInfo(location);
       const prev = (row.type === 'friend-location' || row.type === 'user-location') ? previousLocationOf(row.user_id, row.id) : null;
       // 群组名解析（缓存优先）：group-joined/group-member-updated 平铺 groupId；
