@@ -311,7 +311,13 @@ export class EventPipeline {
             previousStatusDescription: prev.status_description || '',
           }});
         }
-        const iconChanged = prev.user_icon
+        // 用户 2026-09-25：「更换模型可以不用同时推更新头像图标」——
+        // bannerType === avatarBanner 时 iconUrl 指向的就是【模型图】，它的变化已由上面的
+        // avatarChanged 覆盖并产出「更换模型」事件；此处若再看 iconUrl，换一次模型会同时推出
+        // 一条「更新了头像图标」，且前后常是同一张图（用户截图里出现过 🍮 → 🍮）。
+        // ⇒ 该形态下不产出 user_icon 事件；只有非 avatarBanner（真·用户图标）才判。
+        const iconChanged = !isAvatarBanner
+          && prev.user_icon
           && (prev.user_icon || '') !== (userObj.iconUrl || userObj.userIcon || '');
         if (iconChanged) {
           changes.push({ type: 'user_icon', payload: { userIcon: userObj.iconUrl || userObj.userIcon || '', previousUserIcon: prev.user_icon || '' } });

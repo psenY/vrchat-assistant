@@ -50,3 +50,15 @@ test('换模型事件必须写入可用的模型图 URL（不得只写已废弃�
   assert.match(ep, /avatarImageUrl:\s*newAvatarUrl/, 'avatarImageUrl 必须优先用 newAvatarUrl（iconUrl 回落）—— 只用 currentAvatarImageUrl 会恒空，补名拿不到 fileId');
   assert.doesNotMatch(ep, /avatarImageUrl:\s*userObj\.currentAvatarImageUrl\s*\|\|/, '不得退回「只用 currentAvatarImageUrl」（会恒空 ⇒ 补名拿不到 fileId ⇒ 显示未知模型）');
 });
+
+
+// 用户 2026-09-25：「更换模型可以不用同时推更新头像图标」——
+// bannerType === avatarBanner 时 iconUrl 指向的就是模型图，其变化已由 avatarChanged 覆盖；
+// iconChanged 若不带这道门禁，换一次模型会同时推出一条「更新了头像图标」（前后常是同一张图）。
+test('iconChanged 必须带 !isAvatarBanner 门禁（换模型不再重复推头像图标）', () => {
+  const ep = readFileSync(path.join(HERE, '..', 'core', 'event-pipeline.js'), 'utf8');
+  const i = ep.indexOf('const iconChanged =');
+  assert.ok(i > 0, '必须存在 iconChanged 定义');
+  const seg = ep.slice(i, i + 200);
+  assert.ok(seg.includes('!isAvatarBanner'), 'iconChanged 必须排除 bannerType=avatarBanner（那是模型图形态）');
+});
