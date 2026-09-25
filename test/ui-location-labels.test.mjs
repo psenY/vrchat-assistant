@@ -44,3 +44,9 @@ test('位置行左端必须渲染【图 + 世界名 + 实例信息】—— 不�
   assert.doesNotMatch(feed, /previousWorldImageUrl && curIsWorld/, '左端图片不得受 curIsWorld 限制（目的地是私人房时会整块不渲染）');
   assert.doesNotMatch(feed, /previousWorldId && curIsWorld/, '左端链接不得受 curIsWorld 限制');
 });
+
+test('换模型事件必须写入可用的模型图 URL（不得只写已废弃的 currentAvatar*）', () => {
+  const ep = readFileSync(path.join(HERE, '..', 'core', 'event-pipeline.js'), 'utf8');
+  assert.match(ep, /avatarImageUrl:\s*newAvatarUrl/, 'avatarImageUrl 必须优先用 newAvatarUrl（iconUrl 回落）—— 只用 currentAvatarImageUrl 会恒空，补名拿不到 fileId');
+  assert.doesNotMatch(ep, /avatarImageUrl:\s*userObj\.currentAvatarImageUrl\s*\|\|/, '不得退回「只用 currentAvatarImageUrl」（会恒空 ⇒ 补名拿不到 fileId ⇒ 显示未知模型）');
+});
