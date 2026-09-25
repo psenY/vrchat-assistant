@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { store, setView, openUser, openWorld, openPreview, loadMoreFeed, copyText, openGroup, resetFeed } from '../store.js';
-import { time, date, locLabel, specialLocationLabel, statusLabels, trustColor, instanceLabel, avatarLabel } from '../utils.js';
+import { time, date, locLabel, specialLocationLabel, parseLoc, statusLabels, trustColor, instanceLabel, avatarLabel } from '../utils.js';
 import { post } from '../api.js';
 import { toast } from '../toast.js';
 import { statusColor } from '../composables/useFriendGroups.js';
@@ -30,6 +30,12 @@ function sourceLabel(s) {
 // 2026-09-24 用户复查时指出这两条被后来的重写吃掉了 ⇒ 恢复，并加护栏测试锁住。
 function prevLabelOf(e) { return specialLocationLabel(e.previousLocation) || e.previousWorldName || ''; }
 function curIsWorld(e) { return String(e.worldId || '').startsWith('wrld_'); }
+// 左端（上一个位置）的实例信息：公开 · US · 36146 —— 用户 2026-09-24 定「公开房间那侧要显示图像世界名和房间号」
+function prevInstLabel(e) {
+  const p = parseLoc(e.previousLocation || '');
+  if (!p || !p.type) return '';
+  return [instanceLabel(p.type), p.region ? p.region.toUpperCase() : '', p.instanceId || ''].filter(Boolean).join(' · ');
+}
 /* ── 类型定义（对齐 VRCX Feed filters：GPS/Online/Offline/Status/Avatar/Bio）── */
 const filterOptions = [
   { value: 'all', label: '所有' },
@@ -446,9 +452,10 @@ onUnmounted(() => {
             <template v-else>
             <template v-if="prevLabelOf(x) && (curIsWorld(x) ? prevLabelOf(x) !== x.worldName : true)">
   <span class="src-group">
-                <img v-if="x.previousWorldImageUrl && curIsWorld(x)" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
-                <span v-if="x.previousWorldId && curIsWorld(x)" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
+                <img v-if="x.previousWorldImageUrl" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
+                <span v-if="x.previousWorldId" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
                 <span v-else class="dim">{{ prevLabelOf(x) }}</span>
+                <span v-if="prevInstLabel(x)" class="inst mono">{{ prevInstLabel(x) }}</span>
                 <span class="arr">→</span>
   </span>
             </template>
