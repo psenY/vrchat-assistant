@@ -860,7 +860,7 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--accent-2) 10%, transparent);
   white-space: nowrap;
 }
-.uicon { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; cursor: pointer; }
+.uicon { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; }
 .world-link:hover { background: color-mix(in srgb, var(--accent-2) 22%, transparent); }
 /* 目的地组：世界名 + 房间信息绑成不可拆的一组 ⇒ 房间信息不再被挤到单独一行（用户要求）*/
 .dest-group, .src-group { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 auto; }
