@@ -658,6 +658,25 @@ export function registerDashboardServices(loader, ctx) {
               const row = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key = $k`, { $k: `avimg:${fileId}` })[0];
               if (row) { const v = JSON.parse(row.payload || '{}'); avatarId = v.avatarId || ''; }
             } catch { /* 读缓存失败按无映射处理 */ }
+            // 2026-09-25（用户报障「VRCX Luo 依旧能抓到模型名，你抓不到」）：avimg:<fileId> 映射【从未建立过】
+            // —— 其建造方 start-monitor._syncFriendAvatars 的条件是 fid && f.currentAvatar，而 currentAvatar
+            //    已被上游从好友列表接口移除 ⇒ 恒假 ⇒ 这条补名通路整条是死的；追踪页恰好把结果直接写进
+            //    avatar_name:<fid> 缓存（665 条全来自那条路），把这里的空转掩盖了近一个月。
+            // 兜底：GET /users/{userId}（单用户接口仍返回 currentAvatar / currentAvatarImageUrl），
+            // 拿到后回写 avimg: 映射 —— 通路从此修好，下次解析同一 fileId 直接命中。
+            // ⚠️ 数据正确性：老事件里用户可能后来又换过模型 ⇒ 仅当【当前模型图的 fileId == 本事件
+            //    fileId】时才采信并回写，宁可维持未命中，也不把别的模型的名字安到这张图上。
+            if (!avatarId && ev.userId) {
+              try {
+                const ur = await ctx.rateLimiter.execute(() => ctx.api._request('GET', '/users/' + encodeURIComponent(ev.userId)));
+                const ud = (ur && ur.status === 200 && ur.data) || {};
+                const curFid = ud.currentAvatarImageUrl ? avatarFileId(ud.currentAvatarImageUrl) : '';
+                if (ud.currentAvatar && curFid && curFid === fileId) {
+                  avatarId = ud.currentAvatar;
+                  try { ctx.storage.setPlanetCache(`avimg:${fileId}`, { avatarId, at: Date.now() }); } catch { /* 落盘失败不影响本轮解析 */ }
+                }
+              } catch { /* 查询失败按无映射处理（走既有负缓存，6h 后才重试） */ }
+            }
             const a = avatarId
               ? await ctx.rateLimiter.execute(() => ctx.api._request('GET', `/avatars/${encodeURIComponent(avatarId)}`))
               : null;
