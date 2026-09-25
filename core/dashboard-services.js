@@ -667,39 +667,21 @@ export function registerDashboardServices(loader, ctx) {
             // 拿到后回写 avimg: 映射 —— 通路从此修好，下次解析同一 fileId 直接命中。
             // ⚠️ 数据正确性：老事件里用户可能后来又换过模型 ⇒ 仅当【当前模型图的 fileId == 本事件
             //    fileId】时才采信并回写，宁可维持未命中，也不把别的模型的名字安到这张图上。
-            if (!avatarId && ev.userId) {
+            // 2026-09-25 生产探针实测：GET /file/{fileId} 现在返回 200，且 file.name =
+            //   "Avatar - <模型名> - Image - …" ⇒ 直接就能拿名字，不必依赖 avimg:<fileId> 映射。
+            //   （2026-09-22 记的「非自有文件一律 404」已不成立；当时据此改走 /avatars/{avatarId}，
+            //    而上游随后移除了 currentAvatar ⇒ 映射再无来源、补名整条断掉 —— 这是本次的根因链。）
+            let nmDirect = '';
+            if (!avatarId) {
               try {
-                const ur = await ctx.rateLimiter.execute(() => ctx.api._request('GET', '/users/' + encodeURIComponent(ev.userId)));
-                const ud = (ur && ur.status === 200 && ur.data) || {};
-                const curFid = ud.currentAvatarImageUrl ? avatarFileId(ud.currentAvatarImageUrl) : '';
-                if (ud.currentAvatar && curFid && curFid === fileId) {
-                  avatarId = ud.currentAvatar;
-                  try { ctx.storage.setPlanetCache(`avimg:${fileId}`, { avatarId, at: Date.now() }); } catch { /* 落盘失败不影响本轮解析 */ }
-                }
-              } catch { /* 查询失败按无映射处理（走既有负缓存，6h 后才重试） */ }
-            }
-            // 2026-09-25 兜底2（VRCX 同款做法）：拉作者的头像列表，按【头像图 fileId】直接写结果缓存——
-            // /users 已不带 currentAvatar（实测），这是剩下的公开 fileId→name 来源。
-            // 每个作者在一次请求内最多打一次，仍走限流器；失败维持既有负缓存行为。
-            if (!avatarId && ev.userId && !avListTried.has(ev.userId)) {
-              avListTried.add(ev.userId);
-              try {
-                const ar = await ctx.rateLimiter.execute(() => ctx.api._request('GET', `/avatars?authorId=${encodeURIComponent(ev.userId)}&sort=createdAt&order=descending&n=100`));
-                const list = (ar && ar.status === 200 && Array.isArray(ar.data)) ? ar.data : [];
-                for (const av of list) {
-                  const nmRaw = av && av.name ? String(av.name).trim() : '';
-                  const af = (nmRaw && av.imageUrl) ? avatarFileId(av.imageUrl) : '';
-                  if (af) {
-                    anCache.set(af, nmRaw);
-                    try { ctx.storage.setPlanetCache(`avatar_name:${af}`, { name: nmRaw, at: Date.now() }); } catch { /* 落盘失败仅内存生效 */ }
-                  }
-                }
-              } catch { /* 接口不通/无权限：维持负缓存，6h 后自动再试 */ }
+                const fr = await ctx.rateLimiter.execute(() => ctx.api._request('GET', '/file/' + encodeURIComponent(fileId)));
+                if (fr && fr.status === 200 && fr.data) nmDirect = parseAvName(fr.data.name) || '';
+              } catch { /* 仍拿不到就走既有负缓存（6h 后重试） */ }
             }
             const a = avatarId
               ? await ctx.rateLimiter.execute(() => ctx.api._request('GET', `/avatars/${encodeURIComponent(avatarId)}`))
               : null;
-            const nm = parseAvName(a && a.data && a.data.name);
+            const nm = nmDirect || parseAvName(a && a.data && a.data.name);
             if (nm) {
               ev[key] = nm;
               saveAvName(fileId, nm);
