@@ -267,7 +267,12 @@ export class EventPipeline {
       // 实际字段是 iconUrl / iconFrame / bannerType / bannerUrl（新版资料系统，bannerType=avatarBanner 时
       // iconUrl 指向模型图）⇒ newAvatarUrl 恒为空 ⇒ avatarChanged 恒假 ⇒ 永远没有模型变动事件。
       // 与非好友模型名同一根因（上游换了暴露方式）⇒ 同样回落到 iconUrl。
-      const newAvatarUrl = userObj.currentAvatarImageUrl || userObj.iconUrl || '';
+      // 2026-09-25（用户报障「一条显示 kaguya、一条显示未知模型」）实测：bannerType 【会变】——
+      // 只有 bannerType === 'avatarBanner' 时 iconUrl 才指向模型图（见上方注释）；bannerType='color' 时
+      // iconUrl 是别的东西 ⇒ 无条件取它会把【非模型图】当成新模型 ✗ ⇒ 既误报模型变动、
+      // 又让补名拿错的 fileId ⇒ 显示「未知模型」。⇒ 非 avatarBanner 时该字段视为缺失（弱源不产出）。
+      const isAvatarBanner = String(userObj.bannerType || '') === 'avatarBanner';
+      const newAvatarUrl = userObj.currentAvatarImageUrl || (isAvatarBanner ? (userObj.iconUrl || '') : '') || '';
       const prev = this.storage.getFriend(userId);
       if (prev && prev.user_id) {
         const changes = [];
