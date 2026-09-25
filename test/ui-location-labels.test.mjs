@@ -37,3 +37,10 @@ test('位置行左端必须走 prevLabelOf（私人房 → 私人房间 那一�
   assert.match(feed, /function curIsWorld\(/, 'FeedView 必须定义 curIsWorld');
   assert.match(feed, /specialLocationLabel\(e\.previousLocation\)/, 'prevLabelOf 必须对 previousLocation 走 specialLocationLabel');
 });
+
+test('位置行左端必须渲染【图 + 世界名 + 实例信息】—— 不得按目的地类型把左端降级成纯文本（2026-09-24 用户定案「公开房间那侧要显示图像世界名和房间号」）', () => {
+  assert.match(feed, /function prevInstLabel\(/, '必须定义 prevInstLabel');
+  assert.match(feed, /\{\{\s*prevInstLabel\(x\)\s*\}\}/, '模板里必须真的把 prevInstLabel(x) 插值渲染出来（匹配函数定义不算）');
+  assert.doesNotMatch(feed, /previousWorldImageUrl && curIsWorld/, '左端图片不得受 curIsWorld 限制（目的地是私人房时会整块不渲染）');
+  assert.doesNotMatch(feed, /previousWorldId && curIsWorld/, '左端链接不得受 curIsWorld 限制');
+});
