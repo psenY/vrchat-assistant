@@ -645,7 +645,6 @@ export function registerDashboardServices(loader, ctx) {
       }
       if (pending.length >= 6) break;
     }
-    const avListTried = new Set();   // 兜底2 去重：每个作者每次请求最多一次列表查询
     if (pending.length) {
       // 后台补名字（走限流器，不阻塞本次响应；补完下次请求即命中）
       (async () => {
