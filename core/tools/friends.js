@@ -4,6 +4,7 @@
 
 import { ctx, log, parseLocation } from '../server-context.js';
 import { resolveWorldNames } from '../world-names.js';
+import { isWebPresence } from '../event-pipeline.js';
 
 export async function handleGetOnlineFriends() {
   const { storage, api } = ctx;
