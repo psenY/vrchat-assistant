@@ -325,7 +325,7 @@ export class EventPipeline {
           }});
         }
         // 同 newAvatarUrl：用纯函数取值，undefined = 没有图标信息（不产出事件）
-        // 不能 diff userObj.userIcon —— 该字段已被上游移除、恒 undefined，
+        // 不能 diff 上游已移除的 userIcon 字段 —— 它恒 undefined，
         // 基线一旦非空就会每次推送都判为「图标变了」（#251 第二轮审查的阻断项）
         // 载荷里 iconUrl / userIcon 都没有 ⇒ 这条推送【没带图标信息】⇒ 不产出事件（也不动基线）。
         // 若把这种情况当成「图标被移除」，会产出空图事件并把已存的图标基线清空（#259 复审的防御性缺口）。
