@@ -9,13 +9,44 @@ import { getLogger } from './logger.js';
 
 const log = getLogger('event');
 
-// ── 同世界同实例的重复 location 去重（2026-09-20）───────────────────────────────
+/**
+ * 从 WS 的 user 载荷取「当前模型图 URL」。
+ *
+ * 新版资料系统里 currentAvatarImageUrl / currentAvatarThumbnailImageUrl 已被移除，实际字段是 iconUrl ——
+ * 但 **只有 bannerType === 'avatarBanner' 时它才指向模型图**。
+ * bannerType 会变、各档占比也随账号与时间漂移 ⇒ **这里不写死比例**，判据只看 bannerType 本身
+ * （写死的数字容易互相矛盾、也容易过期 —— 上一轮审查即指出过这一点）。
+ * ⇒ 没有可信的模型图信息时【返回 undefined，不要返回空串】：
+ *   空串在调用方会被当成"新值是空的"，与旧值 diff 出【空图的「更换模型」事件】、
+ *   并在 upsert 里把模型图基线清空。undefined 表示"这条载荷没带模型信息"⇒ 调用方保持原值。
+ */
+export function avatarImageUrlFromUser(user) {
+  const u = user || {};
+  if (String(u.bannerType || '') === 'avatarBanner') {
+    return u.iconUrl || u.currentAvatarImageUrl || undefined;
+  }
+  // 非 avatarBanner：iconUrl 不是模型图 ⇒ 只用仍在的旧字段兜底（不写死比例，判据同上）
+  // ⇒ 只用仍在的旧字段兜底；两者都没有 ⇒ undefined
+  return u.currentAvatarImageUrl || undefined;
+}
+
+// 用户图标（资料里自己设的那张方图）取值：iconUrl 优先、旧字段 userIcon 兜底。
+// 与 avatarImageUrlFromUser 同一纪律：取不到返回 undefined（表示「没有信息」），不返回空串 ——
+// 空串会被下游当成「有值且为空」，与真实的「字段缺失」混在一起（#251 审查抓到的形态）。
+export function userIconUrlFromUser(user) {
+  return user?.iconUrl || user?.userIcon || undefined;
+}
+
+// 码点安全截断（review #166：UTF-16 slice 会把 emoji 切半成 U+FFFD 替换符）。
+// 仅日志展示层用，不影响落库数据。
+// ── 同世界同实例的重复 location 去重 ───────────────────────────────────
 // 背景：VRChat 在好友改 Avatar / 客户端重新同步时会重发 world+instance 完全相同的
 // friend-location。逐条落库后，看板动态流里会呈现成「一直在换世界」（同一世界名刷屏），
 // 实际并没有换——用户报障即为此（好友在 Avatar 搜索图里挑模型）。
-// 开关：VRC_MONITOR_DEDUP_SAME_INSTANCE_LOCATION（默认 1=去重；0=保留逐条原始事件）
-// 窗口：VRC_MONITOR_DEDUP_SAME_INSTANCE_WINDOW_SECONDS（默认 300s；窗口外的重复仍落一条心跳）
-// 只影响 events 表落库与日志；好友状态（location/lastSeen）照常刷新。
+// 开关：VRC_MONITOR_DEDUP_SAME_INSTANCE_LOCATION（默认 1=去重；0=保留逐条原始事件，排查用）
+// 窗口：VRC_MONITOR_DEDUP_SAME_INSTANCE_WINDOW_SECONDS（默认 300s；窗口外的重复仍落一条心跳，
+//       便于观察「长期待在同一实例」；调用时读 env，便于测试切换）
+// 只影响 events 表落库与日志；好友状态（location / lastSeen）照常刷新。
 function sameInstanceDedupConfig() {
   const windowRaw = Number(process.env.VRC_MONITOR_DEDUP_SAME_INSTANCE_WINDOW_SECONDS);
   return {
@@ -24,8 +55,6 @@ function sameInstanceDedupConfig() {
   };
 }
 
-// 码点安全截断（review #166：UTF-16 slice 会把 emoji 切半成 U+FFFD 替换符）。
-// 仅日志展示层用，不影响落库数据。
 function truncateCodePoints(str, max) {
   const s = String(str ?? '');
   const chars = Array.from(s);
@@ -165,16 +194,15 @@ export class EventPipeline {
 
     const prev = this.storage.getFriend(userId);
     const prevWorldId = prev?.world_id || '';
-
     const prevLocation = prev?.location || '';
     const prevSeenMs = Date.parse(prev?.last_seen || '') || 0;
     const nowMs = Date.parse(event.receivedAt || '') || Date.now();
     const { enabled: dedupOn, windowMs: dedupWindowMs } = sameInstanceDedupConfig();
     const isSameInstanceRepeat = dedupOn
       && !!location && location === prevLocation
-      // 用 startsWith：线上「传送中」的形态是 traveling:traveling（2026-09-25 实测），
+      // 用 startsWith：线上「传送中」的形态是 traveling:traveling（2026-09-25 生产实测），
       // 精确匹配会把它当成「到达某世界」，从而在这条上做世界判定并落事件。
-      && location !== 'offline' && !location.startsWith('traveling')
+      && location !== 'offline' && !String(location).startsWith('traveling')
       && prevSeenMs > 0 && nowMs - prevSeenMs <= dedupWindowMs;
 
     this.storage.upsertFriend({
@@ -263,33 +291,18 @@ export class EventPipeline {
       // 库里停在 Known User，而事件里已升 Trusted User）。⇒ 只认 tags 推导；无 tags 视为
       // 未知：既不 diff 也不回写，避免把好数据写坏。
       const trust = trustFromTags(userObj.tags) || '';
-      // 新头像 URL 在外层求值：diff 与回写（后者在 if (prev) 块之外）都要用（2026-09-22 修作用域 bug）
-      // 2026-09-23 用户报「检测不到模型变动」实测根因：WS 的 friend-update 载荷里【没有】
-      // currentAvatarImageUrl / currentAvatarThumbnailImageUrl / currentAvatar 任何一键 ——
-      // 实际字段是 iconUrl / iconFrame / bannerType / bannerUrl（新版资料系统，bannerType=avatarBanner 时
-      // iconUrl 指向模型图）⇒ newAvatarUrl 恒为空 ⇒ avatarChanged 恒假 ⇒ 永远没有模型变动事件。
-      // 与非好友模型名同一根因（上游换了暴露方式）⇒ 同样回落到 iconUrl。
-      // 2026-09-25（用户报障「一条显示 kaguya、一条显示未知模型」）实测：bannerType 【会变】——
-      // 只有 bannerType === 'avatarBanner' 时 iconUrl 才指向模型图（见上方注释）；bannerType='color' 时
-      // iconUrl 是别的东西 ⇒ 无条件取它会把【非模型图】当成新模型 ✗ ⇒ 既误报模型变动、
-      // 又让补名拿错的 fileId ⇒ 显示「未知模型」。⇒ 非 avatarBanner 时该字段视为缺失（弱源不产出）。
-      const isAvatarBanner = String(userObj.bannerType || '') === 'avatarBanner';
-      const newAvatarUrl = userObj.currentAvatarImageUrl || (isAvatarBanner ? (userObj.iconUrl || '') : '') || '';
+      // 新版资料系统：currentAvatar* 已被上游移除，实际字段是 iconUrl（bannerType=avatarBanner 时指向模型图）
+      // ⇒ 用旧字段会让 avatarChanged 恒假、永远没有模型变动事件。注意 bannerType 会变：非 avatarBanner 时视为无模型信息。
+      const newAvatarUrl = avatarImageUrlFromUser(userObj);
       const prev = this.storage.getFriend(userId);
       if (prev && prev.user_id) {
         const changes = [];
-        // 用户 2026-09-22 报障「动态里全是未知模型」根因：WS 的 friend-update 载荷**常常不带**
-        // currentAvatarImageUrl → 旧逻辑把它当成「换成空头像」，落库的事件新头像为空 → 前端既拿不到
-        // fileId 也解析不出模型名，只能显示「未知模型」。⇒ 与信任等级同一条纪律：弱源缺字段时**不产生变更**。
-        const avatarChanged = prev.avatar_image_url && newAvatarUrl
+        const avatarChanged = newAvatarUrl !== undefined && prev.avatar_image_url
           && (prev.avatar_image_url || '') !== newAvatarUrl;
         if (avatarChanged) {
           changes.push({ type: 'avatar', payload: {
             avatarName: userObj.currentAvatarName || '',
-            // 2026-09-25（用户报障「换模型全是未知模型」）：上游已移除 currentAvatarImageUrl，
-            // 检测用的 newAvatarUrl（iconUrl / bannerType=avatarBanner 的模型图）才是可用的那个 ⇒
-            // 写进 payload 时也必须用它，否则补名循环永远拿不到 fileId（实测 7 条里 6 条三源全空）。
-            avatarImageUrl: newAvatarUrl || userObj.currentAvatarImageUrl || '',
+            avatarImageUrl: newAvatarUrl,
             avatarThumbnailUrl: userObj.currentAvatarThumbnailImageUrl || '',
             previousAvatarImageUrl: prev.avatar_image_url || '',
             // previousAvatarThumbnailUrl 省略：缩略图无独立存储列，无法取到正确旧缩略图，
@@ -311,16 +324,28 @@ export class EventPipeline {
             previousStatusDescription: prev.status_description || '',
           }});
         }
-        // 用户 2026-09-25：「更换模型可以不用同时推更新头像图标」——
-        // bannerType === avatarBanner 时 iconUrl 指向的就是【模型图】，它的变化已由上面的
-        // avatarChanged 覆盖并产出「更换模型」事件；此处若再看 iconUrl，换一次模型会同时推出
-        // 一条「更新了头像图标」，且前后常是同一张图（用户截图里出现过 🍮 → 🍮）。
-        // ⇒ 该形态下不产出 user_icon 事件；只有非 avatarBanner（真·用户图标）才判。
+        // 同 newAvatarUrl：用纯函数取值，undefined = 没有图标信息（不产出事件）
+        // 不能 diff userObj.userIcon —— 该字段已被上游移除、恒 undefined，
+        // 基线一旦非空就会每次推送都判为「图标变了」（#251 第二轮审查的阻断项）
+        // 载荷里 iconUrl / userIcon 都没有 ⇒ 这条推送【没带图标信息】⇒ 不产出事件（也不动基线）。
+        // 若把这种情况当成「图标被移除」，会产出空图事件并把已存的图标基线清空（#259 复审的防御性缺口）。
+        const newUserIcon = userIconUrlFromUser(userObj);
+        // bannerType === 'avatarBanner' 时 iconUrl 指向的【就是当前模型图】（新版资料系统）——
+        // 换模型必然改它 ⇒ 若这里再判一次，换一次模型会同时产出「更换模型」+「更新了头像图标」
+        // 两条事件，且后者前后常是同一张图（用户实测截图里出现过「更新了头像图标 🍮 → 🍮」）。
+        // 该形态下图标变化已由 avatarChanged 覆盖，故不在此重复判。
+        const isAvatarBanner = String(userObj.bannerType || '') === 'avatarBanner';
+        // 取舍（2026-09-25 审查 💡 指出，如实记录）：本门禁比「同载荷已报 avatar 才跳过」更宽 ——
+        //   只要 bannerType=avatarBanner 就永不产 user_icon，副作用是该档下【真实用户图标变更】也不报；
+        //   且若 prev.avatar_image_url 基线为空，该次换模型连 avatar 事件也没有（要等基线补上后的下一次才触发）。
+        // 为何仍选更宽的判据：该档 iconUrl 与模型图【同源】，本层无法区分「用户改了图标」与「换模型」；
+        //   而误报（每次换模型都多一条「更新了头像图标」）是用户明确报障，误漏（改图标不报）无用户可见影响。
         const iconChanged = !isAvatarBanner
           && prev.user_icon
-          && (prev.user_icon || '') !== (userObj.iconUrl || userObj.userIcon || '');
+          && newUserIcon !== undefined
+          && (prev.user_icon || '') !== newUserIcon;
         if (iconChanged) {
-          changes.push({ type: 'user_icon', payload: { userIcon: userObj.iconUrl || userObj.userIcon || '', previousUserIcon: prev.user_icon || '' } });
+          changes.push({ type: 'user_icon', payload: { userIcon: newUserIcon, previousUserIcon: prev.user_icon || '' } });
         }
         const pronounsChanged = prev.pronouns
           && (prev.pronouns || '') !== (userObj.pronouns || '');
@@ -397,9 +422,9 @@ export class EventPipeline {
         displayName,
         status: userObj.status || '',
         statusDescription: userObj.statusDescription || '',
-        ...(newAvatarUrl ? { avatarImageUrl: newAvatarUrl } : {}),   // 缺字段时不清空已有头像（同上）
+        ...(newAvatarUrl ? { avatarImageUrl: newAvatarUrl } : {}),   // 取不到就不写该列（partial，不清空已存基线）
         bio: userObj.bio || '',
-        userIcon: userObj.iconUrl || userObj.userIcon || '',
+        ...(userObj.iconUrl || userObj.userIcon ? { userIcon: userObj.iconUrl || userObj.userIcon } : {}),
         pronouns: userObj.pronouns || '',
         ...(trust ? { trustLevel: trust } : {}),
         lastSeen: event.receivedAt,
@@ -436,7 +461,10 @@ export class EventPipeline {
     put('status', userObj.status);
     put('statusDescription', userObj.statusDescription);
     put('bio', userObj.bio);
-    put('avatarImageUrl', userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl);
+    // 同上：新版资料系统用 iconUrl（bannerType=avatarBanner 时指向模型图），旧字段已被上游移除
+    const syncAvatarUrl = avatarImageUrlFromUser(userObj)
+      || userObj.currentAvatarThumbnailImageUrl || '';
+    put('avatarImageUrl', syncAvatarUrl);
     put('userIcon', userObj.iconUrl || userObj.userIcon);
     put('pronouns', userObj.pronouns);
     if (Object.keys(patch).length > 1) {

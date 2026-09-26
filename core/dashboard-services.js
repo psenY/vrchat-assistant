@@ -327,10 +327,12 @@ export function registerDashboardServices(loader, ctx) {
           // 与右端同口径：世界名/图优先取 world_cache（VRChat 对私人房/hidden 房的推送
           // 经常不下发 content.world ⇒ 只读载荷会让左端只剩实例信息、不显示世界名与缩略图）。
           // world_id 优先用事件列（写入时已规范化），旧数据缺失时回落到载荷里的 world.id。
-          `SELECT e.content_json AS content_json, wc.name AS wc_name, wc.image_url AS wc_image
+          `SELECT e.content_json AS content_json, wc.name AS wc_name, wc.image_url AS wc_image,
+                  e.world_name AS e_world_name
            FROM events e
            LEFT JOIN world_cache wc
-             ON wc.world_id = COALESCE(NULLIF(e.world_id, ''), json_extract(e.content_json, '$.world.id'))
+             ON wc.world_id = COALESCE(NULLIF(e.world_id, ''),
+                  CASE WHEN json_valid(e.content_json) THEN json_extract(e.content_json, '$.world.id') END)
            WHERE e.user_id = $uid AND e.type IN ('friend-location', 'user-location')
              AND e.id < $id ORDER BY e.id DESC LIMIT 25`,
           { $uid: userId, $id: eventId });
@@ -345,7 +347,7 @@ export function registerDashboardServices(loader, ctx) {
           // 缓存优先（与右端同口径）⇒ 私人房也能显示世界名与缩略图
           const cachedName = row.wc_name || '';
           const cachedImage = row.wc_image || '';
-          const worldName = cachedName || cj.world?.name || cj.worldName || '';
+          const worldName = cachedName || row.e_world_name || cj.world?.name || cj.worldName || '';   // #262：补事件列兜底
           // 用户 2026-09-22 定：位置行要显示**状态到状态**（如「私人房间 → 私人房间」）——
           // 因此「上一条非 traveling/offline 的位置」就是答案，哪怕它是私人房这类**没有世界名**的形态；
           // 旧写法在这里 continue 掉没有世界名的行，导致一路回溯到上一个真世界 → 显示成「<旧世界名> → 私人房间」✗。
@@ -403,7 +405,7 @@ export function registerDashboardServices(loader, ctx) {
       //    也躲过前端 `x.location === 'traveling'` 的判断 ⇒ 位置行渲染成荒谬的「公开 · traveling」
       //    （2026-09-25 用户报障「什么叫公开传送中」）。在 DTO 层统一规范化：一处改、
       //    对历史事件同样生效（不必回溯改库），前端无需改动。
-      const location = rawLocation === 'traveling:traveling' ? 'traveling' : rawLocation;
+      const location = rawLocation.startsWith('traveling:') ? 'traveling' : rawLocation;   // #261：判据统一为前缀（变体不止一种）
       const locInfo = parseLocInfo(location);
       const prev = (row.type === 'friend-location' || row.type === 'user-location') ? previousLocationOf(row.user_id, row.id) : null;
       // 群组名解析（缓存优先）：group-joined/group-member-updated 平铺 groupId；
@@ -625,10 +627,11 @@ export function registerDashboardServices(loader, ctx) {
       // 差别在于【它主动去取】——我们只等推送带 avatarImageUrl。载荷没带时：
       // ① 优先回落到该好友【最近一次带图的事件】（那才是模型图，lastKnownAvatarUrl 现成）；
       // ② userIcon 只是最后兜底 —— 它往往是用户头像图（非模型图），解出的 fileId 查不到模型名。
-      if (!ev.avatarImageUrl) {
-        const lk = lastKnownAvatarUrl(ev.userId);
-        if (lk) jobs.push({ url: lk, key: 'avatarName' });
-        else if (ev.userIcon) jobs.push({ url: ev.userIcon, key: 'avatarName' });
+      // #264（审查 nixi-agent 实测：载荷里 avatarImageUrl / avatarThumbnailUrl 常同为空串；跨事件回落命中 0/1693）：
+      //   只回落到【同一条事件】已有的缩略图字段；**绝不跨事件取「该好友最近一次带图的那条」** ——
+      //   那条对本事件而言是更早或更晚的模型，会把「未知模型」写成【确定但错误】的名（比留空更误导）。
+      if (!ev.avatarImageUrl && !ev.avatarName && ev.avatarThumbnailUrl) {
+        jobs.push({ url: ev.avatarThumbnailUrl, key: 'avatarName' });
       }
       for (const j of jobs) {
         if (!j.url) continue;
