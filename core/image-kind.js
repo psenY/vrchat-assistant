@@ -11,6 +11,9 @@
  * 命中缓存零成本；未命中时过一次限流器（与其它外部调用同源留痕）。
  */
 import { fileKindFromData, avatarNameFromFileData } from './img-util.js';
+import { getLogger } from './logger.js';
+
+const log = getLogger('image-kind');
 
 export function createImageKindResolver({ storage, api, rateLimiter, positiveTtlMs = 30 * 24 * 3600e3, unknownTtlMs = 6 * 3600e3 } = {}) {
   // ⚠️2（审查 nixi-agent 指出）：负缓存命中 / 判不出 / 请求失败都是【降级路径】，此前完全无留痕 ✗。
@@ -21,7 +24,8 @@ export function createImageKindResolver({ storage, api, rateLimiter, positiveTtl
     const n = stat.negHit + stat.unknown + stat.fail;
     if (!n) return;
     if (!force && n < 50 && Date.now() - lastFlush < 10 * 60e3) return;
-    try { console.log(`[image-kind] 降级聚合：负缓存命中 ${stat.negHit} · 判不出 ${stat.unknown} · 请求失败 ${stat.fail}（窗口 ${Math.round((Date.now() - lastFlush) / 1000)}s）`); } catch { /* 日志失败忽略 */ }
+    const msg = '降级聚合：负缓存命中 ' + stat.negHit + ' · 判不出 ' + stat.unknown + ' · 请求失败 ' + stat.fail + '（窗口 ' + Math.round((Date.now() - lastFlush) / 1000) + 's）';
+    if (stat.fail) log.warn(msg); else log.info(msg);   // 失败→WARN，其余降级→INFO（本仓分级约定）
     stat.negHit = 0; stat.unknown = 0; stat.fail = 0; lastFlush = Date.now();
   };
   const mem = new Map();   // fileId -> { kind, name, until }

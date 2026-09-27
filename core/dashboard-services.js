@@ -43,6 +43,9 @@ function worldCacheStale(updatedAt) {
   return Date.now() - t >= WORLD_CACHE_TTL_MS;
 }
 import { imgProxy, avatarThumb, avatarOf, avatarFileId, parseAvatarName, isPlausibleAvatarName } from './img-util.js';
+import { getLogger } from './logger.js';
+
+const log = getLogger('dashboard');
 import { handleGetFriendWorldStats } from './tools/events.js';
 
 // 通知类型→中文标签（与前端 ui/src/utils.js 的 notificationTypeLabels 对齐，供 see/hide-notification 摘要拼类型）。
@@ -418,10 +421,10 @@ export function registerDashboardServices(loader, ctx) {
       }
       // ⚠️1/⚠️2：截断与失败都按聚合留痕一行（本仓禁静默降级）✓
       if (allUids.length > uids.length) {
-        console.log('[dashboard] 头像历史回填按上限 ' + HIST_CAP + ' 截断：' + (allUids.length - uids.length) + ' 位好友未回填（其行仍回落「当前图标」）');
+        log.info('头像历史回填按上限 ' + HIST_CAP + ' 截断：' + (allUids.length - uids.length) + ' 位好友未回填（其行仍回落「当前图标」）');
       }
       if (histFailed.n) {
-        console.log('[dashboard] 头像历史回填失败 ' + histFailed.n + ' 位好友（本次按「当前图标」回落）');
+        log.warn('头像历史回填失败 ' + histFailed.n + ' 位好友（本次按「当前图标」回落）');
       }
     }
     const histIconAt = (uid, t) => {
