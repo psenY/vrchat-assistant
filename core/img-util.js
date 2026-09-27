@@ -52,3 +52,26 @@ export const parseAvatarName = (n) => {
 };
 
 export const avatarOf = (iconUrl, modelUrl) => avatarThumb(iconUrl) || avatarThumb(modelUrl);
+
+/** 该 file 的元数据是否是【用户图标】（VRChat 给自设/上传图标打的 tag 含 icon）。判据来源：VRCX-Luo getAvatarName() ✓ */
+export const isUserIconFile = (data) => {
+  const tags = Array.isArray(data && data.tags) ? data.tags : [];
+  return tags.includes('icon');
+};
+
+/** file 元数据 → 'icon' | 'model' | 'unknown'（2026-09-27 定案判据；实测正反样本各 4 例） */
+export const fileKindFromData = (data) => {
+  if (!data) return 'unknown';
+  if (isUserIconFile(data)) return 'icon';
+  const name = String(data.name || '');
+  // 只采信 VRChat 对模型图的命名（Avatar - <名> - Image - ...）；没有 name 视为无法判定
+  if (!name) return 'unknown';
+  return /^Avatar\s*-\s*/i.test(name) ? 'model' : 'unknown';
+};
+
+/** file 元数据 → 模型展示名（只采信 Avatar - 命名；否则空） */
+export const avatarNameFromFileData = (data) => {
+  const name = String((data && data.name) || '');
+  if (!/^Avatar\s*-\s*/i.test(name)) return '';
+  return parseAvatarName(name) || '';
+};

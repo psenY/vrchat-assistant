@@ -73,6 +73,7 @@ export class EventPipeline {
   constructor(storage, worldCache) {
     this.storage = storage;
     this.worldCache = worldCache;
+    this._imageKindResolver = null;   // 图片种类解析器（file tags → icon/model），由 start-monitor 注入
     this._eventCount = 0;
     this._lastSave = Date.now();
     this._flushTimer = null;         // 定时 flush 句柄
@@ -99,6 +100,9 @@ export class EventPipeline {
   /**
    * 处理一个 WebSocket 事件
    */
+  /** 注入「图片种类解析器」：fileId → { kind: 'icon'|'model'|'unknown', name }（见 core/image-kind.js） */
+  setImageKindResolver(fn) { this._imageKindResolver = typeof fn === 'function' ? fn : null; }
+
   async process(event) {
     this._eventCount++;
 
@@ -352,6 +356,28 @@ export class EventPipeline {
           avatarFileId(prev.avatar_image_url || ''),
         ].filter(Boolean);
         const iconIsModelImage = !!iconFileId && modelFileIds.includes(iconFileId);
+        const isAvatarBanner = String(userObj.bannerType || '') === 'avatarBanner';
+        // 文件级「图标确实变了」（与 bannerType 无关 —— 判据统一到文件级，见下方 ⚠️2）
+        const prevIconFileId = avatarFileId(prev.user_icon || '');
+        const newIconFileId = avatarFileId(newUserIcon || '');
+        const iconDiffers = !!prev.user_icon && newUserIcon !== undefined
+          && (prevIconFileId && newIconFileId
+            ? prevIconFileId !== newIconFileId
+            : (prev.user_icon || '') !== newUserIcon);
+        // ⭐ 2026-09-27 判据升级（用户用 VRCX-Luo 纠正 + 生产正反样本各 4 例实测）：
+        //   判定「这张图是用户图标还是模型图」要看 **file 的 tags 含不含 icon** ——
+        //   权威实现：yixijun/VRCX-Luo src/coordinators/avatarCoordinator.js:255 getAvatarName()
+        //     （getFile({fileId}) → args.json?.tags?.includes('icon') ⇒ 用户图标；否则按模型图）
+        //   ⚠️ 不要用文件名（命名约定、且要额外请求），也不要用 bannerType（只覆盖 avatarBanner 一档）。
+        //   解析器由 start-monitor 注入（本层不做网络调用）；未注入/解析失败（unknown）⇒ 回落旧判据（向后兼容）。
+        let iconKind = 'unknown';
+        let iconKindName = '';
+        if (iconDiffers && newIconFileId && typeof this._imageKindResolver === 'function') {
+          try {
+            const k = await this._imageKindResolver(newIconFileId);
+            if (k && k.kind) { iconKind = k.kind; iconKindName = k.name || ''; }
+          } catch { iconKind = 'unknown'; }
+        }
         // ⭐ 同一条定案的另一半：图标其实就是模型图（同文件）但模型图基线当时为空 ⇒ 该次换模型原本【一条事件都没有】
         //   （只有那条错的「更新了头像图标」）⇒ 这里按【模型变更】补一条 avatar 事件，标签才是「模型变动」✓。
         //   仅在「本次图标与已存模型图基线不同」时补；**判据必须也是【文件级】**（审查 🔴 实测：分类按 file id 而去重按字符串 ⇒
@@ -361,7 +387,7 @@ export class EventPipeline {
         //   该形态仍会记成 user_icon（本层无更强证据，宁可按字段名语义处理，不猜）。
         //   与 iconChanged 的关系：两者共用 iconIsModelImage —— 这里把「同源图标变化」升格为模型变更，
         //   iconChanged 那边则据此排除它，语义互补、不会双记 ✓。
-        if (!avatarChanged && iconIsModelImage && avatarFileId(prev.avatar_image_url || '') !== iconFileId) {
+        if (!avatarChanged && iconKind === 'unknown' && iconIsModelImage && avatarFileId(prev.avatar_image_url || '') !== iconFileId) {
           newAvatarUrl = newUserIcon;   // ★ 写回基线：同一文件的下一次推送不再重复补事件（审查 🔴）
           changes.push({ type: 'avatar', payload: {
             avatarName: userObj.currentAvatarName || '',
@@ -374,7 +400,6 @@ export class EventPipeline {
         // 换模型必然改它 ⇒ 若这里再判一次，换一次模型会同时产出「更换模型」+「更新了头像图标」
         // 两条事件，且后者前后常是同一张图（用户实测截图里出现过「更新了头像图标 🍮 → 🍮」）。
         // 该形态下图标变化已由 avatarChanged 覆盖，故不在此重复判。
-        const isAvatarBanner = String(userObj.bannerType || '') === 'avatarBanner';
         // 取舍（2026-09-25 审查 💡 指出，如实记录）：本门禁比「同载荷已报 avatar 才跳过」更宽 ——
         //   只要 bannerType=avatarBanner 就永不产 user_icon，副作用是该档下【真实用户图标变更】也不报；
         //   且若 prev.avatar_image_url 基线为空，该次换模型连 avatar 事件也没有（要等基线补上后的下一次才触发）。
@@ -382,14 +407,26 @@ export class EventPipeline {
         //   而误报（每次换模型都多一条「更新了头像图标」）是用户明确报障，误漏（改图标不报）无用户可见影响。
         // ⚠️2（审查 nixi-agent 指出）：姊妹路径判据必须一致 —— `avatarChanged` 已升格为文件级，
         //   这里若仍用字符串比较，同一张图换 URL 形态（…/1/256 ↔ …/1/512）仍会被记成「更新了头像图标」✗。
-        const prevIconFileId = avatarFileId(prev.user_icon || '');
-        const newIconFileId = avatarFileId(newUserIcon || '');
-        const iconChanged = !isAvatarBanner && !iconIsModelImage
-          && prev.user_icon
-          && newUserIcon !== undefined
-          && (prevIconFileId && newIconFileId
-            ? prevIconFileId !== newIconFileId
-            : (prev.user_icon || '') !== newUserIcon);
+        // 旧判据（文件同一性 + bannerType 门禁）：仅在拿不到 file 元数据（unknown）时回落到它
+        const iconChangedLegacy = !isAvatarBanner && !iconIsModelImage && iconDiffers;
+        // tags 明确说是模型图 ⇒ 升格为「模型变动」，且不再记 user_icon（这正是用户 09-26 定案要的效果）
+        if (iconKind === 'model') {
+          const already = changes.some((c) => c.type === 'avatar'
+            && avatarFileId(c.payload.avatarImageUrl || '') === iconFileId);
+          if (!already && avatarFileId(prev.avatar_image_url || '') !== iconFileId) {
+            newAvatarUrl = newUserIcon;   // ★ 写回基线：同一文件的下一次推送不再重复补事件
+            changes.push({ type: 'avatar', payload: {
+              avatarName: iconKindName || userObj.currentAvatarName || '',
+              avatarImageUrl: newUserIcon,
+              avatarThumbnailUrl: '',
+              previousAvatarImageUrl: prev.user_icon || '',
+            }});
+          }
+        }
+        // tags 说是用户图标 ⇒ 即使旧判据认为它是模型图，也按用户图标记（反向纠偏）；
+        // unknown ⇒ 沿用旧判据（解析器未注入 / 404 / 异常时行为完全不变）
+        const iconChanged = iconKind === 'icon' ? iconDiffers
+          : (iconKind === 'model' ? false : iconChangedLegacy);
         if (iconChanged) {
           changes.push({ type: 'user_icon', payload: { userIcon: newUserIcon, previousUserIcon: prev.user_icon || '' } });
         }

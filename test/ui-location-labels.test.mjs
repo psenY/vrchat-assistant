@@ -57,8 +57,16 @@ test('换模型事件必须写入可用的模型图 URL（不得只写已废弃�
 // iconChanged 若不带这道门禁，换一次模型会同时推出一条「更新了头像图标」（前后常是同一张图）。
 test('iconChanged 必须带 !isAvatarBanner 门禁（换模型不再重复推头像图标）', () => {
   const ep = readFileSync(path.join(HERE, '..', 'core', 'event-pipeline.js'), 'utf8');
-  const i = ep.indexOf('const iconChanged =');
-  assert.ok(i > 0, '必须存在 iconChanged 定义');
-  const seg = ep.slice(i, i + 200);
-  assert.ok(seg.includes('!isAvatarBanner'), 'iconChanged 必须排除 bannerType=avatarBanner（那是模型图形态）');
+  // 2026-09-27 判据升级（VRCX-Luo 口径）：主判据改为查 file 的 tags ——
+  //   ① tags 含 icon ⇒ 记 user_icon（即使旧判据认为它是模型图，反向纠偏）；
+  //   ② tags 判定为模型图 ⇒ iconChanged 必须为 false（换模型不得再推「更新了头像图标」）；
+  //   ③ 拿不到 tags（unknown）⇒ 回落到旧判据，该回落里必须保留 !isAvatarBanner 门禁。
+  assert.match(ep, /const iconChangedLegacy = !isAvatarBanner && !iconIsModelImage && iconDiffers;/,
+    '未知形态的回落判据必须保留 !isAvatarBanner 门禁（bannerType=avatarBanner 时那本就是模型图形态）');
+  assert.match(ep, /iconKind === 'model' \? false/,
+    'tags 判定为模型图时 iconChanged 必须为 false（不得再推「更新了头像图标」）');
+  assert.match(ep, /iconKind === 'icon' \? iconDiffers/,
+    'tags 判定为用户图标时必须按文件级差异产出 user_icon（反向纠偏）');
+  assert.match(ep, /typeof this\._imageKindResolver === 'function'/,
+    '必须通过注入的解析器查 file tags（本层不做网络调用，便于测试与解耦）');
 });

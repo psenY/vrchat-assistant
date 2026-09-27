@@ -25,6 +25,7 @@ import { RateLimiter } from './core/rate-limiter.js';
 import { VrchatApiClient } from './vrchat-api.js';
 import { WsManager } from './core/ws-manager.js';
 import { EventPipeline } from './core/event-pipeline.js';
+import { createImageKindResolver } from './core/image-kind.js';
 import { FriendStateManager } from './core/friend-state.js';
 import { DynamicStatusSync } from './core/status-sync.js';
 import { createServer } from './core/http-server.js';
@@ -907,6 +908,11 @@ setOpsLogSink((kind, level, message) => {
 
   // 5. 初始化事件处理管道
   ctx.eventPipeline = new EventPipeline(ctx.storage, null);
+  // 换模型 vs 只换头像 的判据（2026-09-27）：查 file 的 tags 含不含 icon
+  // （权威实现 yixijun/VRCX-Luo；生产正反样本各 4 例实测）—— 命中缓存零成本，未命中过一次限流器
+  ctx.eventPipeline.setImageKindResolver(createImageKindResolver({
+    storage: ctx.storage, api: ctx.api, rateLimiter: ctx.rateLimiter,
+  }));
 
   // 5.4 动态状态引擎（按在线好友数量自动更新自定义状态；默认关闭,MCP set_dynamic_status 控制）
   ctx.statusSync = new DynamicStatusSync(ctx, { log });
