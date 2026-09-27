@@ -598,7 +598,8 @@ export function registerDashboardServices(loader, ctx) {
             // 2026-09-22：负缓存（解析不出来的 fileId）也要载入，否则每次翻页都会重试同一批 ✗
             // —— 深层页全是老数据 ⇒ 每页重试 6 个不可解析的 fileId ⇒ 限流器被打爆（实测 40–105 秒等待/分钟）
             if (v && v.miss) { if (!v.until || v.until > Date.now()) anCache.set(fid, ''); }
-            else if (v && v.name) anCache.set(fid, v.name);
+            else if (v && isPlausibleAvatarName(v.name)) anCache.set(fid, v.name);
+            else if (v && v.name) anCache.set(fid, '');   // 2026-09-27：历史脏值（blob/文件名）不载入
           } catch { /* ignore */ }
         }
       } catch { /* 无表/查询失败则仅用内存缓存 */ }
@@ -679,7 +680,11 @@ export function registerDashboardServices(loader, ctx) {
         // 导致模型名全部显示"未知模型"）。avatarFileId 会先还原代理 URL 再提取 fileId。
         const fileId = avatarFileId(j.url);
         if (!fileId) continue;
-        if (anCache.has(fileId)) { ev[j.key] = anCache.get(fileId); continue; }
+        if (anCache.has(fileId)) {   // 2026-09-27：写回前过滤 —— 缓存里可能仍有历史 blob 名
+          const cv = anCache.get(fileId);
+          ev[j.key] = isPlausibleAvatarName(cv) ? cv : '';
+          continue;
+        }
         if (seen.has(fileId)) continue;
         seen.add(fileId);
         pending.push({ ev, fileId, key: j.key });
