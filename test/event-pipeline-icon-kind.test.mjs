@@ -118,3 +118,62 @@ test('未注入解析器 ⇒ 行为与改动前一致（向后兼容）', async 
   assert.equal(n.icon, 1);
   assert.equal(n.avatar, 0);
 });
+
+
+// ── 2026-09-27 审查（nixi-agent）复核后补的回归用例 ──
+
+test('🔴 并发同一推送：按 userId 串行化后只产 1 条「模型变动」（审查实测的回归项）', async () => {
+  clear();
+  pipeline.setImageKindResolver(async () => { await new Promise((r) => setTimeout(r, 60)); return { kind: 'model', name: '并发模型' }; });
+  storage.upsertFriend({ userId: UID, displayName: '判据测试', userIcon: ICON_A, status: 'active' });
+  const mk = () => ({
+    type: 'friend-update', userId: UID, displayName: '判据测试', receivedAt: new Date().toISOString(),
+    content: { user: { bannerType: 'color', bio: '', status: 'active', iconUrl: MODEL_A } },
+  });
+  await Promise.all([pipeline.process(mk()), pipeline.process(mk())]);
+  const t2 = types();
+  assert.equal(t2.avatar, 1, '并发两路必须只产 1 条模型变动（旧实现会各推一条）');
+  assert.equal(t2.icon, 0);
+});
+
+test('⚠️1 首次记录（基线图标为空）：解析器照样被调用，且只补模型基线、不产事件', async () => {
+  clear();
+  let calls = 0;
+  pipeline.setImageKindResolver(async () => { calls++; return { kind: 'model', name: '首次模型' }; });
+  storage.upsertFriend({ userId: UID, displayName: '判据测试', userIcon: '', status: 'active' });
+  await push({ iconUrl: MODEL_A }, new Date(Date.now() + 1000).toISOString());
+  assert.equal(calls, 1, '基线为空时也必须解析（旧门禁下解析器调用 0 次 ⇒ 漏记）');
+  const t3 = types();
+  assert.equal(t3.avatar, 0, '缺前值不得记变更（不产「(空) → 某模型」噪音行）');
+  assert.equal(t3.icon, 0);
+  const fr = storage.query('SELECT avatar_image_url AS a FROM friends WHERE user_id = $u', { $u: UID })[0] || {};
+  assert.ok(String(fr.a || '').includes('file_aaaaaaaa'), '静默补上模型图基线，下一次变化才判得准');
+});
+
+test('💡1 内存缓存到期后重新解析（不被负缓存锁死到进程结束）', async () => {
+  const { createImageKindResolver } = await import(pathToFileURL(path.join(REPO, 'core', 'image-kind.js')).href);
+  let calls = 0;
+  const api = { _request: async () => { calls++; throw new Error('404'); } };
+  const resolve = createImageKindResolver({ storage, api, rateLimiter: { execute: async (fn) => fn() }, unknownTtlMs: 30 });
+  const id = 'file_eeeeeeee-0000-0000-0000-00000000000e';
+  await resolve(id);
+  await resolve(id);
+  assert.equal(calls, 1, '负缓存有效期内不再请求');
+  await new Promise((r) => setTimeout(r, 70));
+  await resolve(id);
+  assert.equal(calls, 2, '到期后必须重试（旧实现内存缓存不看 until ⇒ 永不过期）');
+});
+
+test('💡2 HTTP 200 但判不出种类（unknown）⇒ 走 unknown TTL，不吃 30 天正缓存', async () => {
+  const { createImageKindResolver } = await import(pathToFileURL(path.join(REPO, 'core', 'image-kind.js')).href);
+  let calls = 0;
+  const api = { _request: async () => { calls++; return { status: 200, data: { tags: [], name: 'image.png' } }; } };
+  const resolve = createImageKindResolver({ storage, api, rateLimiter: { execute: async (fn) => fn() }, positiveTtlMs: 30 * 24 * 3600e3, unknownTtlMs: 30 });
+  const id = 'file_ffffffff-0000-0000-0000-00000000000f';
+  const rec = await resolve(id);
+  assert.equal(rec.kind, 'unknown');
+  assert.ok(rec.until - rec.at <= 2000, 'unknown 必须用短 TTL（实测旧实现会锁 30 天）');
+  await new Promise((r) => setTimeout(r, 70));
+  await resolve(id);
+  assert.equal(calls, 2, '短 TTL 到期后应重试');
+});

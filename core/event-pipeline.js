@@ -74,6 +74,7 @@ export class EventPipeline {
     this.storage = storage;
     this.worldCache = worldCache;
     this._imageKindResolver = null;   // 图片种类解析器（file tags → icon/model），由 start-monitor 注入
+    this._updateChain = new Map();   // userId → 串行链（见 _handleUpdate 的 🔴 说明）
     this._eventCount = 0;
     this._lastSave = Date.now();
     this._flushTimer = null;         // 定时 flush 句柄
@@ -276,7 +277,20 @@ export class EventPipeline {
     }
   }
 
+  /** 🔴 审查 nixi-agent 实测（真实 EventPipeline + 300ms 解析延迟 + 5ms 间隔的双推送）：本方法此前
+   *  【全程无挂起点】，本次新增的「查 file 元数据」await 成了第一个 —— ws-manager 调 onEvent 是 fire-and-forget
+   *  （不 await），于是窗口内两路并发都读到同一份陈旧基线、各推一条「模型变动」✗。
+   *  ⇒ 按 userId 串行化：同一好友的推送天然有序，串行后去重基线必然是最新的 ✓（不同好友仍并行）。 */
   async _handleUpdate(event) {
+    const key = String((event && (event.userId || (event.content && event.content.userId))) || '');
+    if (!key) return this._handleUpdateInner(event);
+    const prevChain = this._updateChain.get(key) || Promise.resolve();
+    const run = prevChain.then(() => this._handleUpdateInner(event));
+    this._updateChain.set(key, run.then(() => {}, () => {}));
+    return run;
+  }
+
+  async _handleUpdateInner(event) {
     const userId = event.userId;
     const displayName = event.displayName;
 
@@ -372,7 +386,9 @@ export class EventPipeline {
         //   解析器由 start-monitor 注入（本层不做网络调用）；未注入/解析失败（unknown）⇒ 回落旧判据（向后兼容）。
         let iconKind = 'unknown';
         let iconKindName = '';
-        if (iconDiffers && newIconFileId && typeof this._imageKindResolver === 'function') {
+        // ⚠️1（审查 nixi-agent 指出）：旧门禁要求 iconDiffers（内含「基线图标非空」）⇒ 首次被记录图标时解析器根本不
+        //   会被调用，那条明确是模型图的推送就被漏掉了。改为只看「新的图标 fileId 存在」✓。
+        if (newIconFileId && typeof this._imageKindResolver === 'function') {
           try {
             const k = await this._imageKindResolver(newIconFileId);
             if (k && k.kind) { iconKind = k.kind; iconKindName = k.name || ''; }
@@ -410,17 +426,25 @@ export class EventPipeline {
         // 旧判据（文件同一性 + bannerType 门禁）：仅在拿不到 file 元数据（unknown）时回落到它
         const iconChangedLegacy = !isAvatarBanner && !iconIsModelImage && iconDiffers;
         // tags 明确说是模型图 ⇒ 升格为「模型变动」，且不再记 user_icon（这正是用户 09-26 定案要的效果）
+        // ⚠️1 的配套半：拿得到 tags 判定时，若【还没有图标基线】⇒ 只补基线、不产事件 ——
+        //   否则会产出缺前值的「(空) → 某模型」噪音行（本仓红线：缺前值不得记变更）✓
+        const hasIconBaseline = !!prev.user_icon;
         if (iconKind === 'model') {
           const already = changes.some((c) => c.type === 'avatar'
             && avatarFileId(c.payload.avatarImageUrl || '') === iconFileId);
           if (!already && avatarFileId(prev.avatar_image_url || '') !== iconFileId) {
             newAvatarUrl = newUserIcon;   // ★ 写回基线：同一文件的下一次推送不再重复补事件
-            changes.push({ type: 'avatar', payload: {
+            if (hasIconBaseline) {
+              changes.push({ type: 'avatar', payload: {
               avatarName: iconKindName || userObj.currentAvatarName || '',
               avatarImageUrl: newUserIcon,
               avatarThumbnailUrl: '',
               previousAvatarImageUrl: prev.user_icon || '',
-            }});
+              }});
+            } else {
+              // 首次记录：只写基线（上面 newAvatarUrl 已赋值）、不产事件 ✓
+              log.info(displayName + ' 首次记录模型图基线（不产事件）');
+            }
           }
         }
         // tags 说是用户图标 ⇒ 即使旧判据认为它是模型图，也按用户图标记（反向纠偏）；

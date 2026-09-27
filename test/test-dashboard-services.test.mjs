@@ -5,7 +5,7 @@
  *   trackedNonFriends / trackedChanges（bio/status 前后值）/ stats / owner 归属
  * 自包含：临时 SQLite + 造数据，不依赖真实 VRChat 凭据。
  */
-import { rmSync } from 'node:fs';
+import { rmSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
@@ -738,4 +738,15 @@ test('模型名可信性判据 + DTO 过滤：blob/文件名类脏值不得作�
   const row = (res2.events || []).find((e) => e.userId === U3 && e.updateType === 'avatar');
   assert.ok(row, '该行应在响应里');
   assert.equal(row.avatarName, '', 'DTO 不得把 blob 名当模型名透出（应为空 ⇒ 前端显示未知模型）');
+});
+
+
+// ── 2026-09-27 审查（nixi-agent）复核后补的护栏：这两处修复很"隐形"，加源码级断言防回归 ──
+test('审查修复护栏：历史窗口按 created_at 排序 + 截断/失败必须留痕（不得静默降级）', () => {
+  const src = readFileSync(path.join(REPO, 'core', 'dashboard-services.js'), 'utf8');
+  assert.match(src, /ORDER BY created_at DESC LIMIT 400/,
+    '回填窗口必须按 created_at 排序（与索引同序；id 序 ≠ 时间序的老数据上按 id 会静默失效）');
+  assert.ok(!/ORDER BY id DESC LIMIT 400/.test(src), '不应再有按 id 排序的窗口');
+  assert.match(src, /头像历史回填按上限/, '回填截断必须留痕（审查 ⚠️1：此前静默）');
+  assert.match(src, /头像历史回填失败/, '取历史失败必须留痕（审查 ⚠️2：此前静默）');
 });

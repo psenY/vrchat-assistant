@@ -387,20 +387,26 @@ export function registerDashboardServices(loader, ctx) {
     };
     // ⭐ 2026-09-27（用户定案 B）：左侧圆头像一律取【该行当时】的图——
     //   原先无图标载荷的行会回落到「好友当前图标」（friends 表实时值），于是同一列里
-    //   「当时快照」与「当前值」混排（用户截图：同一好友几行头像不一样）✗。这里按 userId
-    //   取一段历史事件抽出「带图标的那些」，做时间 carry-forward：该行有载荷图标 ⇒ 用它；
-    //   否则取「该行时刻之前最近一次已知图标」；再没有才回落当前值（最老的行）。
+    //   「当时快照」与「当前值」混排（用户截图：同一好友几行头像不一样）✗。
+    //   这里按 userId 取一段历史事件、抽出「带图标的那些」做时间 carry-forward：
+    //   该行有载荷图标 ⇒ 用它；否则取「该行时刻之前最近一次已知图标」；再没有才回落当前值（最老的行）。
+    // ⚠️1（审查 nixi-agent）：回填有上限，超出的行会静默沿用旧行为 ✗ ⇒ 必须留痕 ✓
+    // 💡1（审查 nixi-agent）：窗口按 created_at 排序（与索引 idx_events_user_time 同序；
+    //   实测 id 序 ≠ 时间序的老数据上，按 id 排序会让最近图标掉出窗口 ⇒ 静默失效）。
+    const HIST_CAP = 40;
     const iconHistory = new Map();   // userId -> [{ t, icon }]（升序）
+    const histFailed = { n: 0 };
     {
-      const uids = [...new Set(rows.map((r) => r.user_id).filter(Boolean))].slice(0, 40);
+      const allUids = [...new Set(rows.map((r) => r.user_id).filter(Boolean))];
+      const uids = allUids.slice(0, HIST_CAP);
       const tMax = rows.reduce((a, r) => (r.created_at > a ? r.created_at : a), '');
       for (const uid of uids) {
         try {
-          const hist = ctx.storage.query(
-            `SELECT created_at AS t, content_json AS c FROM events WHERE user_id = $u AND created_at <= $t ORDER BY id DESC LIMIT 400`,
+          const histRows = ctx.storage.query(
+            `SELECT created_at AS t, content_json AS c FROM events WHERE user_id = $u AND created_at <= $t ORDER BY created_at DESC LIMIT 400`,
             { $u: uid, $t: tMax });
           const list = [];
-          for (const h of hist) {
+          for (const h of histRows) {
             let c = {};
             try { c = JSON.parse(h.c || '{}'); } catch { continue; }
             const icon = c.userIcon || c.iconUrl || (c.user && (c.user.iconUrl || c.user.userIcon)) || '';
@@ -408,7 +414,14 @@ export function registerDashboardServices(loader, ctx) {
           }
           list.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
           iconHistory.set(uid, list);
-        } catch { /* 取不到历史就回落当前值 */ }
+        } catch { histFailed.n++; }
+      }
+      // ⚠️1/⚠️2：截断与失败都按聚合留痕一行（本仓禁静默降级）✓
+      if (allUids.length > uids.length) {
+        console.log('[dashboard] 头像历史回填按上限 ' + HIST_CAP + ' 截断：' + (allUids.length - uids.length) + ' 位好友未回填（其行仍回落「当前图标」）');
+      }
+      if (histFailed.n) {
+        console.log('[dashboard] 头像历史回填失败 ' + histFailed.n + ' 位好友（本次按「当前图标」回落）');
       }
     }
     const histIconAt = (uid, t) => {

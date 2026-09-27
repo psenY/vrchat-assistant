@@ -13,6 +13,17 @@
 import { fileKindFromData, avatarNameFromFileData } from './img-util.js';
 
 export function createImageKindResolver({ storage, api, rateLimiter, positiveTtlMs = 30 * 24 * 3600e3, unknownTtlMs = 6 * 3600e3 } = {}) {
+  // ⚠️2（审查 nixi-agent 指出）：负缓存命中 / 判不出 / 请求失败都是【降级路径】，此前完全无留痕 ✗。
+  //   本仓约定「禁静默降级」——但逐条打日志会被热路径刷屏，故按「条数 or 时间窗」聚合一行 ✓。
+  const stat = { negHit: 0, unknown: 0, fail: 0 };
+  let lastFlush = Date.now();
+  const flushStat = (force) => {
+    const n = stat.negHit + stat.unknown + stat.fail;
+    if (!n) return;
+    if (!force && n < 50 && Date.now() - lastFlush < 10 * 60e3) return;
+    try { console.log(`[image-kind] 降级聚合：负缓存命中 ${stat.negHit} · 判不出 ${stat.unknown} · 请求失败 ${stat.fail}（窗口 ${Math.round((Date.now() - lastFlush) / 1000)}s）`); } catch { /* 日志失败忽略 */ }
+    stat.negHit = 0; stat.unknown = 0; stat.fail = 0; lastFlush = Date.now();
+  };
   const mem = new Map();   // fileId -> { kind, name, until }
   let loaded = false;
 
@@ -39,17 +50,27 @@ export function createImageKindResolver({ storage, api, rateLimiter, positiveTtl
     if (!fileId) return { kind: 'unknown', name: '' };
     loadOnce();
     const hit = mem.get(fileId);
-    if (hit) return hit;
+    // 💡1（审查 nixi-agent 指出）：内存缓存此前不看 until ⇒ 6h 负缓存在进程生命周期内永不过期
+    //   （注释里的「到期自动重试」只在重启后成立）。这里补上到期判断，并计入降级统计。
+    flushStat(false);
+    if (hit) {
+      if (!hit.until || hit.until > Date.now()) { if (hit.miss || hit.kind === 'unknown') stat.negHit++; return hit; }
+      mem.delete(fileId);   // 过期 ⇒ 落回后端重查 ✓
+    }
     try {
       const r = await rateLimiter.execute(() => api._request('GET', '/file/' + fileId));
       const data = (r && r.data) || null;
       const kind = fileKindFromData(data);
       const name = kind === 'model' ? avatarNameFromFileData(data) : '';
-      const rec = { kind, name, at: Date.now(), until: Date.now() + positiveTtlMs };
+      // 💡2（审查指出）：HTTP 200 但判不出种类（unknown）不该吃 30 天正缓存 ⇒ 与失败路径同款 6h ✓
+      const ttl = kind === 'unknown' ? unknownTtlMs : positiveTtlMs;
+      const rec = { kind, name, at: Date.now(), until: Date.now() + ttl };
+      if (kind === 'unknown') stat.unknown++;
       save(fileId, rec);
       return rec;
     } catch {
       // 404/网络失败 ⇒ 负缓存（6h）：期间按 unknown 处理（回落旧判据），到期自动重试
+      stat.fail++;
       const rec = { kind: 'unknown', name: '', miss: true, at: Date.now(), until: Date.now() + unknownTtlMs };
       save(fileId, rec);
       return rec;
