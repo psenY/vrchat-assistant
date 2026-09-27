@@ -713,3 +713,29 @@ test('events：无载荷图标的行必须回填「该行时刻之前最近的�
   assert.equal(fidOf(avatar.userIcon), avatarFileId(HIST), '无载荷图标的行必须回填"当时最近的已知图标"');
   assert.notEqual(fidOf(avatar.userIcon), avatarFileId(LIVE), '不得回落到好友当前图标（定案 B 要修的正是这个混排）');
 });
+
+
+// ── 2026-09-27：模型名可信性（parseAvatarName 对「非 Avatar 命名」原样返回 ⇒ blob/文件名会被当模型名） ──
+test('模型名可信性判据 + DTO 过滤：blob/文件名类脏值不得作为模型名展示', async () => {
+  const { isPlausibleAvatarName } = await import(pathToFileURL(path.join(REPO, 'core', 'img-util.js')).href);
+  assert.equal(isPlausibleAvatarName('タフィー バニー'), true, '正常模型名要通过');
+  assert.equal(isPlausibleAvatarName('file_c3f51535-f3bb-4d6a-90f6-0a67ab53b422_blob'), false, 'blob 文件名要挡掉');
+  assert.equal(isPlausibleAvatarName('file_11111111-0000-0000-0000-000000000001'), false, '裸 file id 要挡掉');
+  assert.equal(isPlausibleAvatarName('c3f51535-f3bb-4d6a-90f6-0a67ab53b422'), false, '裸 UUID 要挡掉');
+  assert.equal(isPlausibleAvatarName('image.png'), false, '图片文件名要挡掉');
+  assert.equal(isPlausibleAvatarName(''), false);
+
+  // DTO 层：载荷里存了 blob 名也不得原样透出
+  const U3 = 'usr_test-name-0000-0000-0000-000000000003';
+  ctx.storage.upsertFriend({ userId: U3, displayName: '名字测试', userIcon: '', avatarImageUrl: '', bio: '', status: 'active' });
+  ctx.storage.insertEvent({
+    type: 'friend-update', userId: U3, displayName: '名字测试',
+    contentJson: { userId: U3, displayName: '名字测试', type: 'avatar', avatarName: 'file_c3f51535-f3bb-4d6a-90f6-0a67ab53b422_blob', avatarImageUrl: 'https://api.vrchat.cloud/api/1/image/file_dddd4444-0000-0000-0000-00000000000d/1/256' },
+    worldId: '', worldName: '', createdAt: '2026-09-27T02:30:00.000Z', source: 'websocket',
+  });
+  const svc2 = loader.services.get('dashboard.events');
+  const res2 = await svc2({ limit: 100 });
+  const row = (res2.events || []).find((e) => e.userId === U3 && e.updateType === 'avatar');
+  assert.ok(row, '该行应在响应里');
+  assert.equal(row.avatarName, '', 'DTO 不得把 blob 名当模型名透出（应为空 ⇒ 前端显示未知模型）');
+});

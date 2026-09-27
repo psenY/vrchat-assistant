@@ -42,7 +42,7 @@ function worldCacheStale(updatedAt) {
   if (Number.isNaN(t)) return true;
   return Date.now() - t >= WORLD_CACHE_TTL_MS;
 }
-import { imgProxy, avatarThumb, avatarOf, avatarFileId, parseAvatarName } from './img-util.js';
+import { imgProxy, avatarThumb, avatarOf, avatarFileId, parseAvatarName, isPlausibleAvatarName } from './img-util.js';
 import { handleGetFriendWorldStats } from './tools/events.js';
 
 // 通知类型→中文标签（与前端 ui/src/utils.js 的 notificationTypeLabels 对齐，供 see/hide-notification 摘要拼类型）。
@@ -89,7 +89,7 @@ function avatarNameFromIconUrl(storage, iconUrl) {
     const v = JSON.parse(row.payload || '{}');
     if (v.until && v.until <= Date.now()) return '';
     const nm = String(v.name || '');
-    return /^file_[0-9a-f-]{20,}/i.test(nm) ? '' : nm;
+    return isPlausibleAvatarName(nm) ? nm : '';
   } catch { return ''; }
 }
 
@@ -529,8 +529,11 @@ export function registerDashboardServices(loader, ctx) {
         previousStatus: content.previousStatus || '',
         previousStatusDescription: content.previousStatusDescription || '',
         // 2026-09-22：非好友两个字段都空 ⇒ 用 iconUrl 链兜底 ✓（弹窗「正在使用的模型」就能显示 ✓）
-        avatarName: content.avatarName || user.currentAvatarName || avatarNameFromIconUrl(ctx.storage, user.iconUrl),
-        previousAvatarName: content.previousAvatarName || '',
+        avatarName: (() => {   // 2026-09-27：显示前一并挡掉 blob/文件名类脏值
+          const nm = content.avatarName || user.currentAvatarName || avatarNameFromIconUrl(ctx.storage, user.iconUrl);
+          return isPlausibleAvatarName(nm) ? nm : '';
+        })(),
+        previousAvatarName: isPlausibleAvatarName(content.previousAvatarName) ? content.previousAvatarName : '',
         // avatarId 富化：WS 推送不含 currentAvatar，从 planet_cache 的 imageUrl→avatarId 映射反查（_syncFriendAvatars 建立）
         avatarId: content.avatarId || user.currentAvatar || (() => {
           // 2026-09-22 issue #225：收敛到 avatarFileId()（同时认 /file/ 与 /image/ 两种形态 ✓；此前内联正则漏 image ✗）
@@ -601,8 +604,9 @@ export function registerDashboardServices(loader, ctx) {
       } catch { /* 无表/查询失败则仅用内存缓存 */ }
     }
     const saveAvName = (fileId, name) => {
-      anCache.set(fileId, name);
-      try { ctx.storage.setPlanetCache(`avatar_name:${fileId}`, { name, at: Date.now() }); } catch { /* 落盘失败不影响响应 */ }
+      const ok = isPlausibleAvatarName(name);
+      anCache.set(fileId, ok ? name : '');
+      try { ctx.storage.setPlanetCache(`avatar_name:${fileId}`, ok ? { name, at: Date.now() } : { name: '', miss: true, until: Date.now() + 6 * 3600 * 1000 }); } catch { /* 落盘失败不影响响应 */ }
     };
     // 群组名后台补全（限流）：缓存未命中的群组事件拉 /groups/{id} 回填 group_cache，本次响应立即返回
     const needGroup = [...new Set(result
@@ -718,7 +722,9 @@ export function registerDashboardServices(loader, ctx) {
             const a = avatarId
               ? await ctx.rateLimiter.execute(() => ctx.api._request('GET', `/avatars/${encodeURIComponent(avatarId)}`))
               : null;
-            const nm = nmDirect || parseAvName(a && a.data && a.data.name);
+            // 2026-09-27：parseAvatarName 对非 Avatar 命名会原样返回 ⇒ 必须过可信性判据（否则 file_xxx_blob 被当模型名）
+            const nmRaw = nmDirect || parseAvName(a && a.data && a.data.name);
+            const nm = isPlausibleAvatarName(nmRaw) ? nmRaw : '';
             if (nm) {
               ev[key] = nm;
               saveAvName(fileId, nm);
