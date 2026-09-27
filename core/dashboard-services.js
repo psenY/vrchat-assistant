@@ -405,8 +405,8 @@ export function registerDashboardServices(loader, ctx) {
       const needUids = [...new Set(rows.filter((r) => {
         // ⚠️（审查 nixi-agent 第七轮）：把【本人行】也纳入 —— user-location / user-update 同样是
         //   「位置/资料」行、同样可能没带图标；只认 friend-* 会让 SELF 行丢掉「该行当时」的图标回填
-        //   （实测 userIcon 由历史值变空、而 avatarUrl 两版一致 ⇒ 本仓渲染 avatarUrl 优先故无可见回归，
-        //   但口径应一致）✓ 仍排除 notification 等非人物行。
+        //   （实测 userIcon 由历史值变空；而动态流 playerAvatarOf 是 `x.userIcon || x.avatarUrl…` ⇒ **用户图标优先**
+        //   ⇒ 这条变化对默认前端【是可见的】（审查 EMeowAGENT 第五轮指出我此前写反了）⇒ 纳入本人行是必要的）✓ 仍排除 notification 等非人物行。
         const rt = String(r.type || '');
         if (!(rt.startsWith('friend-') || rt.startsWith('user-'))) return false;
         let c = {};
