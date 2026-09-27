@@ -400,7 +400,16 @@ export function registerDashboardServices(loader, ctx) {
     const iconHistory = new Map();   // userId -> [{ t, icon }]（升序）
     const histFailed = { n: 0 };
     {
-      const allUids = [...new Set(rows.map((r) => r.user_id).filter(Boolean))];
+      // ⚠️（审查 nixi-agent 指出「说明与代码不符」）：真正做【按需】—— 只取「本页里
+      //   是 friend-* 行、且载荷没带图标」的好友 id；通知类事件的 user_id 不再挤占名额 ✓
+      const needUids = [...new Set(rows.filter((r) => {
+        if (!String(r.type || '').startsWith('friend-')) return false;
+        let c = {};
+        try { c = JSON.parse(r.content_json || '{}'); } catch { /* 坏载荷按不需要处理 */ return false; }
+        const hasIcon = !!(c.userIcon || c.iconUrl || (c.user && (c.user.iconUrl || c.user.userIcon)));
+        return !hasIcon;
+      }).map((r) => r.user_id).filter(Boolean))];
+      const allUids = needUids;   // 语义别名（下方留痕沿用）
       const uids = allUids.slice(0, HIST_CAP);
       const tMax = rows.reduce((a, r) => (r.created_at > a ? r.created_at : a), '');
       for (const uid of uids) {

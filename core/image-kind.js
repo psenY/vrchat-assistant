@@ -50,7 +50,9 @@ export function createImageKindResolver({ storage, api, rateLimiter, positiveTtl
     try { storage.setPlanetCache('file_kind:' + fileId, rec); } catch { /* 落盘失败不影响判定 */ }
   };
 
-  return async function resolveImageKind(fileId) {
+  /** 💡（审查 nixi-agent）：聚合桶在进程退出时会丢 ⇒ 暴露 flush，供 start-monitor 在
+   *  SIGINT/SIGTERM/beforeExit 时调用（与 core/rate-limiter.js 的 flushSlowWaitAgg 同款）✓ */
+  const resolveImageKind = (async function resolveImageKind(fileId) {
     if (!fileId) return { kind: 'unknown', name: '' };
     loadOnce();
     const hit = mem.get(fileId);
@@ -79,5 +81,7 @@ export function createImageKindResolver({ storage, api, rateLimiter, positiveTtl
       save(fileId, rec);
       return rec;
     }
-  };
+  });
+  resolveImageKind.flush = () => flushStat(true);   // 优雅退出/单测用 ✓
+  return resolveImageKind;
 }

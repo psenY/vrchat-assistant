@@ -910,9 +910,12 @@ setOpsLogSink((kind, level, message) => {
   ctx.eventPipeline = new EventPipeline(ctx.storage, null);
   // 换模型 vs 只换头像 的判据（2026-09-27）：查 file 的 tags 含不含 icon
   // （权威实现 yixijun/VRCX-Luo；生产正反样本各 4 例实测）—— 命中缓存零成本，未命中过一次限流器
-  ctx.eventPipeline.setImageKindResolver(createImageKindResolver({
+  // 💡（审查 nixi-agent）：聚合留痕桶在进程退出时会丢 ⇒ 存到 ctx 并在
+  //   SIGINT/SIGTERM/beforeExit 里 flush（与 rateLimiter.flushSlowWaitAgg 同款）✓
+  ctx.imageKindResolver = createImageKindResolver({
     storage: ctx.storage, api: ctx.api, rateLimiter: ctx.rateLimiter,
-  }));
+  });
+  ctx.eventPipeline.setImageKindResolver(ctx.imageKindResolver);
 
   // 5.4 动态状态引擎（按在线好友数量自动更新自定义状态；默认关闭,MCP set_dynamic_status 控制）
   ctx.statusSync = new DynamicStatusSync(ctx, { log });
@@ -1035,6 +1038,7 @@ async function shutdown(signal) {
     if (eventPipeline) eventPipeline.flush();
     // review #193 🟡：退出前把未满窗口的慢等待聚合桶 flush 出来，否则「禁静默降级」只对运行期成立
     if (rateLimiter && typeof rateLimiter.flushSlowWaitAgg === 'function') rateLimiter.flushSlowWaitAgg();
+    try { if (ctx.imageKindResolver && typeof ctx.imageKindResolver.flush === 'function') ctx.imageKindResolver.flush(); } catch { /* 退出路径不抛 */ }
     if (storage) storage.save();
     log('[成功] 已保存数据');
   } catch (e) {
@@ -1047,6 +1051,7 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('beforeExit', () => {
   if (ctx.eventPipeline) ctx.eventPipeline.flush();
   if (ctx.rateLimiter && typeof ctx.rateLimiter.flushSlowWaitAgg === 'function') ctx.rateLimiter.flushSlowWaitAgg();
+  try { if (ctx.imageKindResolver && typeof ctx.imageKindResolver.flush === 'function') ctx.imageKindResolver.flush(); } catch { /* 退出路径不抛 */ }
   if (ctx.storage) ctx.storage.save();
 });
 
