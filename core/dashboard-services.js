@@ -403,7 +403,12 @@ export function registerDashboardServices(loader, ctx) {
       // ⚠️（审查 nixi-agent 指出「说明与代码不符」）：真正做【按需】—— 只取「本页里
       //   是 friend-* 行、且载荷没带图标」的好友 id；通知类事件的 user_id 不再挤占名额 ✓
       const needUids = [...new Set(rows.filter((r) => {
-        if (!String(r.type || '').startsWith('friend-')) return false;
+        // ⚠️（审查 nixi-agent 第七轮）：把【本人行】也纳入 —— user-location / user-update 同样是
+        //   「位置/资料」行、同样可能没带图标；只认 friend-* 会让 SELF 行丢掉「该行当时」的图标回填
+        //   （实测 userIcon 由历史值变空、而 avatarUrl 两版一致 ⇒ 本仓渲染 avatarUrl 优先故无可见回归，
+        //   但口径应一致）✓ 仍排除 notification 等非人物行。
+        const rt = String(r.type || '');
+        if (!(rt.startsWith('friend-') || rt.startsWith('user-'))) return false;
         let c = {};
         try { c = JSON.parse(r.content_json || '{}'); } catch { /* 坏载荷按不需要处理 */ return false; }
         const hasIcon = !!(c.userIcon || c.iconUrl || (c.user && (c.user.iconUrl || c.user.userIcon)));

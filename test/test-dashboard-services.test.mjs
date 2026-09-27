@@ -757,5 +757,5 @@ test('审查修复护栏②：回填对象必须【按需】选取（friend-* �
   assert.match(src, /const needUids = /, '必须按需选取回填对象（needUids）');
   assert.ok(!/const allUids = \[\.\.\.new Set\(rows\.map\(\(r\) => r\.user_id\)/.test(src),
     '不应再以"本页全部 user_id"作为回填对象（通知类 id 会挤占名额）');
-  assert.match(src, /startsWith\('friend-'\)/, '回填只针对 friend-* 行');
+  assert.match(src, /rt\.startsWith\('friend-'\) \|\| rt\.startsWith\('user-'\)/, '回填应覆盖 friend-* 与本人 user-* 行');
 });
