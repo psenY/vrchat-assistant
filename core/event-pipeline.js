@@ -452,8 +452,21 @@ export class EventPipeline {
         }
         // tags 说是用户图标 ⇒ 即使旧判据认为它是模型图，也按用户图标记（反向纠偏）；
         // unknown ⇒ 沿用旧判据（解析器未注入 / 404 / 异常时行为完全不变）
-        const iconChanged = iconKind === 'icon' ? iconDiffers
-          : (iconKind === 'model' ? false : iconChangedLegacy);
+        // 🔴 2026-09-27 用户报障（生产 id 18104/18105 同一毫秒、同一文件 file_a2d7f291…）：
+        //   该文件 tags 含 icon ⇒ 解析器判「用户图标」，而同一推送的 currentAvatarImageUrl 也是它 ⇒
+        //   上一层已按模型变动产出一条 avatar，这里又补一条 user_icon ⇒ 动态流「同时」两行 ✗。
+        //   ⇒ 证据优先级：**载荷内的文件同一性压过 tags 结论**（同一文件的模型图证据是本次推送自带的、
+        //     比文件的 tags 更贴近「这次到底改了什么」；tags 判 icon 只在它与模型图不是同一文件时才作数）✓
+        // 只用【本次推送自带】的模型图证据（不含已存基线 prev.avatar_image_url）：
+        //   基线可能本身就是被误存成模型图的用户图标 ⇒ 那种情况仍按 tags 纠偏（见同文件反向纠偏用例）
+        const modelFileIdsNow = [
+          avatarFileId(newAvatarUrl || ''),
+          avatarFileId(userObj.currentAvatarImageUrl || ''),
+          avatarFileId(userObj.currentAvatarThumbnailImageUrl || ''),
+        ].filter(Boolean);
+        const iconIsModelImageNow = !!iconFileId && modelFileIdsNow.includes(iconFileId);
+        const iconChanged = iconIsModelImageNow ? false
+          : (iconKind === 'icon' ? iconDiffers : (iconKind === 'model' ? false : iconChangedLegacy));
         if (iconChanged) {
           changes.push({ type: 'user_icon', payload: { userIcon: newUserIcon, previousUserIcon: prev.user_icon || '' } });
         }

@@ -199,3 +199,17 @@ test('💡（审查 nixi-agent）flush 必须把聚合桶排空 —— 钉住 fl
   const after = resolve.stats();
   assert.deepEqual(after, { negHit: 0, unknown: 0, fail: 0 }, 'flush 之后桶必须排空（否则退出时仍会丢日志）');
 });
+
+
+test('🔴 文件同一性必须压过 tags：同一文件既是载荷里的 currentAvatarImageUrl 又是 iconUrl ⇒ 只出 1 条模型变动、不出「更新了头像图标」', async () => {
+  clear();
+  // 生产实证（2026-09-27 23:05 北京时间，某位好友 event id 18104/18105 同一毫秒）：
+  //   解析器对这张文件返回 icon（它的 tags 含 icon），而同一推送里 currentAvatarImageUrl 也是它 ⇒ 旧逻辑同时出两行 ✗
+  pipeline.setImageKindResolver(async () => ({ kind: 'icon', name: '' }));
+  storage.upsertFriend({ userId: UID, displayName: '判据测试', userIcon: ICON_A, status: 'active', avatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_00000000-0000-0000-0000-0000000000b1/1/256' });
+  await pipeline.process({ type: 'friend-update', userId: UID, displayName: '判据测试', receivedAt: new Date().toISOString(),
+    content: { user: { bannerType: 'avatarBanner', bio: '', status: 'active', iconUrl: MODEL_A, currentAvatarImageUrl: MODEL_A } } });
+  const tt = types();
+  assert.equal(tt.avatar, 1, '该文件是模型图（与 currentAvatar* 同文件）⇒ 应记 1 条模型变动（实际 ' + tt.avatar + '）');
+  assert.equal(tt.icon, 0, '同一文件不得再出「更新了头像图标」（实际 ' + tt.icon + '）');
+});
