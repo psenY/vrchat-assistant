@@ -678,3 +678,38 @@ test('dashboard.events：载荷无新模型图时保持「未知模型」（不�
   assert.notEqual(ev.avatarName, '当前模型名', '不得跨事件用「好友当前模型」回填（会张冠李戴）');
   assert.equal(ev.avatarName, '', '载荷没有新模型图时保持未知（本 PR 的已知限度）');
 });
+
+
+// ── 2026-09-27（用户定案 B）：左侧圆头像按「该行当时」的图标回填 ──
+// 背景：原先无载荷图标的行会回落到「好友当前图标」（friends 表实时值），于是同一列里
+//   「当时快照」与「当前值」混排 —— 用户截图：同一位好友几行头像不一样 ✗。
+// 定案：一律显示「那一行当时的图」（老行没有任何历史图标时才回落当前值）。
+test('events：无载荷图标的行必须回填「该行时刻之前最近的已知图标」，不得回落好友当前图标', async () => {
+  const U2 = 'usr_test-icon-0000-0000-0000-000000000002';
+  const LIVE = 'https://api.vrchat.cloud/api/1/image/file_aaaa1111-0000-0000-0000-00000000000a/2/256';
+  const HIST = 'https://api.vrchat.cloud/api/1/image/file_bbbb2222-0000-0000-0000-00000000000b/1/256';
+  const MODEL = 'https://api.vrchat.cloud/api/1/image/file_cccc3333-0000-0000-0000-00000000000c/1/256';
+  ctx.storage.upsertFriend({ userId: U2, displayName: '图标测试', userIcon: LIVE, avatarImageUrl: '', bio: '', status: 'active' });
+  // t1：上线行（载荷里带当时的图标）
+  ctx.storage.insertEvent({
+    type: 'friend-online', userId: U2, displayName: '图标测试',
+    contentJson: { userId: U2, platform: 'standalonewindows', location: 'private', user: { id: U2, iconUrl: HIST } },
+    worldId: '', worldName: '', createdAt: '2026-09-27T01:00:00.000Z', source: 'websocket',
+  });
+  // t2：换模型行（载荷不带图标）—— 它的左侧头像应取 t1 那个"当时的图标"
+  ctx.storage.insertEvent({
+    type: 'friend-update', userId: U2, displayName: '图标测试',
+    contentJson: { userId: U2, displayName: '图标测试', type: 'avatar', avatarName: '某模型', avatarImageUrl: MODEL },
+    worldId: '', worldName: '', createdAt: '2026-09-27T02:00:00.000Z', source: 'websocket',
+  });
+  const svc = loader.services.get('dashboard.events');
+  const res = await svc({ limit: 100 });
+  const evs = res.events || res || [];
+  const fidOf = (u) => avatarFileId(decodeURIComponent(String(u || '')));
+  const online = evs.find((e) => e.type === 'friend-online' && e.userId === U2);
+  const avatar = evs.find((e) => e.type === 'friend-update' && e.userId === U2 && e.updateType === 'avatar');
+  assert.ok(online && avatar, '两条事件都应在响应里（online + avatar）');
+  assert.equal(fidOf(online.userIcon), avatarFileId(HIST), '带载荷图标的行用载荷里那一刻的图标');
+  assert.equal(fidOf(avatar.userIcon), avatarFileId(HIST), '无载荷图标的行必须回填"当时最近的已知图标"');
+  assert.notEqual(fidOf(avatar.userIcon), avatarFileId(LIVE), '不得回落到好友当前图标（定案 B 要修的正是这个混排）');
+});

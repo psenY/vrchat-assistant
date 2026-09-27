@@ -385,6 +385,39 @@ export function registerDashboardServices(loader, ctx) {
         region: rm ? rm[1] : '',
       };
     };
+    // ⭐ 2026-09-27（用户定案 B）：左侧圆头像一律取【该行当时】的图——
+    //   原先无图标载荷的行会回落到「好友当前图标」（friends 表实时值），于是同一列里
+    //   「当时快照」与「当前值」混排（用户截图：同一好友几行头像不一样）✗。这里按 userId
+    //   取一段历史事件抽出「带图标的那些」，做时间 carry-forward：该行有载荷图标 ⇒ 用它；
+    //   否则取「该行时刻之前最近一次已知图标」；再没有才回落当前值（最老的行）。
+    const iconHistory = new Map();   // userId -> [{ t, icon }]（升序）
+    {
+      const uids = [...new Set(rows.map((r) => r.user_id).filter(Boolean))].slice(0, 40);
+      const tMax = rows.reduce((a, r) => (r.created_at > a ? r.created_at : a), '');
+      for (const uid of uids) {
+        try {
+          const hist = ctx.storage.query(
+            `SELECT created_at AS t, content_json AS c FROM events WHERE user_id = $u AND created_at <= $t ORDER BY id DESC LIMIT 400`,
+            { $u: uid, $t: tMax });
+          const list = [];
+          for (const h of hist) {
+            let c = {};
+            try { c = JSON.parse(h.c || '{}'); } catch { continue; }
+            const icon = c.userIcon || c.iconUrl || (c.user && (c.user.iconUrl || c.user.userIcon)) || '';
+            if (icon) list.push({ t: h.t, icon });
+          }
+          list.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
+          iconHistory.set(uid, list);
+        } catch { /* 取不到历史就回落当前值 */ }
+      }
+    }
+    const histIconAt = (uid, t) => {
+      const list = iconHistory.get(uid);
+      if (!list || !list.length) return '';
+      let found = '';
+      for (const it of list) { if (it.t <= t) found = it.icon; else break; }
+      return found;
+    };
     const result = rows.map((row) => {
       // 无子类型的原始 friend-update/user-update 重推副本：diff 子事件已带完整详情，
       // 原始副本只会显示成无详情的"资料变化"噪音 → 不进动态流
@@ -469,7 +502,6 @@ export function registerDashboardServices(loader, ctx) {
         contentItemTypeLabel: ({ prop: '道具', bundle: '捆绑包', accessory: '配件', shared: '共享物品' }[content.itemType] || content.itemType || '物品'),
         contentItemName: (content.itemId && invItemCache[content.itemId]) ? invItemCache[content.itemId].name || '' : '',
         contentItemImageUrl: imgProxy((content.itemId && invItemCache[content.itemId]) ? invItemCache[content.itemId].imageUrl || '' : ''),
-        avatarUrl: avatarOf(row.userIcon || user.iconUrl, row.avatarUrl || content.avatarImageUrl || user.currentAvatarImageUrl),
         location,
         summary: row.type === 'friend-location' ? '位置变化'
           : row.type === 'friend-update' ? ({ avatar: '更换模型', status: '状态变化', bio: '简介变化', user_icon: '更新用户头像', pronouns: '更新代词' }[content.type] || '资料变化')
@@ -516,14 +548,17 @@ export function registerDashboardServices(loader, ctx) {
         previousAvatarImageUrl: imgProxy(content.previousAvatarImageUrl || ''),
         bio: content.bio || user.bio || '',
         previousBio: content.previousBio || '',
-        userIcon: imgProxy(content.userIcon || user.userIcon || user.iconUrl || content.iconUrl || ''),
+        // 用户定案 B（2026-09-27）：该行没带图标时，取「该行时刻之前最近一次已知图标」（历史如实）
+        userIcon: imgProxy(content.userIcon || user.userIcon || user.iconUrl || content.iconUrl
+          || histIconAt(row.user_id, row.created_at) || ''),
         // 2026-09-22 用户报障「为什么会有没头像的（散华ln 非好友）」——实测：该用户 status 事件的载荷里
         // `avatarImageUrl` **就是空串** ✗（WS 没带图），所以本块即使拼了 avatarUrl 也不会有图 ✓。
         // 正解：回退到「该 userId **最近一次带图的事件**」（数据就在 events 表里 ✓ 不需要发 API ✓），带进程内缓存 + 负缓存 ✓。
         // 2026-09-22 用户报障「为什么会有没头像的（散华ln 非好友，半天也不加载）」：
         // 本块（profile 变更）**此前没有 avatarUrl** ✗，而前端 playerAvatarOf 优先读 avatarUrl ⇒ 非好友行头像空白 ✓。
         // 数据其实就在事件载荷里（status 事件自带 avatarImageUrl ✓）—— 不是「没加载」，是没被拼进去 ✓。
-        avatarUrl: avatarOf(row.userIcon || user.userIcon, row.avatarUrl || content.avatarImageUrl || user.currentAvatarImageUrl)
+        avatarUrl: avatarOf(content.userIcon || user.userIcon || user.iconUrl || histIconAt(row.user_id, row.created_at),
+            row.avatarUrl || content.avatarImageUrl || user.currentAvatarImageUrl)
           || lastKnownAvatarUrl(row.user_id),
         previousUserIcon: content.previousUserIcon || '',
         pronouns: content.pronouns || user.pronouns || '',
