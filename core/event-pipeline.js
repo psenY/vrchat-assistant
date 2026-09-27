@@ -459,6 +459,10 @@ export class EventPipeline {
         //     比文件的 tags 更贴近「这次到底改了什么」；tags 判 icon 只在它与模型图不是同一文件时才作数）✓
         // 只用【本次推送自带】的模型图证据（不含已存基线 prev.avatar_image_url）：
         //   基线可能本身就是被误存成模型图的用户图标 ⇒ 那种情况仍按 tags 纠偏（见同文件反向纠偏用例）
+        // ⚠️（审查 EMeowAGENT 第六轮）：`avatarBanner` 档下 `avatarImageUrlFromUser` 就是把 iconUrl 当模型图
+        //   ⇒ 这一档里「本次载荷的模型图证据」与 icon **同源** ⇒ `iconIsModelImageNow` 恒真，
+        //   效果等价于既有的「avatarBanner ⇒ 不产 user_icon」门禁（代价＝该档下真实的用户图标变更也不报，
+        //   该取舍见上方 #263 段注释：误报是用户明确报障，误漏无用户可见后果）。非 avatarBanner 档不受影响 ✓
         const modelFileIdsNow = [
           avatarFileId(newAvatarUrl || ''),
           avatarFileId(userObj.currentAvatarImageUrl || ''),
