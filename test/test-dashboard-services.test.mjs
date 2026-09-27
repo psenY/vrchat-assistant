@@ -750,3 +750,12 @@ test('审查修复护栏：历史窗口按 created_at 排序 + 截断/失败必�
   assert.match(src, /头像历史回填按上限/, '回填截断必须留痕（审查 ⚠️1：此前静默）');
   assert.match(src, /头像历史回填失败/, '取历史失败必须留痕（审查 ⚠️2：此前静默）');
 });
+
+// 2026-09-27 追加：审查指出「说明与代码不符（称按需、实为全量）」⇒ 用护栏钉住"真按需"
+test('审查修复护栏②：回填对象必须【按需】选取（friend-* 且载荷缺图标），不得再用全量 user_id', () => {
+  const src = readFileSync(path.join(REPO, 'core', 'dashboard-services.js'), 'utf8');
+  assert.match(src, /const needUids = /, '必须按需选取回填对象（needUids）');
+  assert.ok(!/const allUids = \[\.\.\.new Set\(rows\.map\(\(r\) => r\.user_id\)/.test(src),
+    '不应再以"本页全部 user_id"作为回填对象（通知类 id 会挤占名额）');
+  assert.match(src, /startsWith\('friend-'\)/, '回填只针对 friend-* 行');
+});

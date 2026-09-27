@@ -177,3 +177,13 @@ test('💡2 HTTP 200 但判不出种类（unknown）⇒ 走 unknown TTL，不吃
   await resolve(id);
   assert.equal(calls, 2, '短 TTL 到期后应重试');
 });
+
+
+test('💡（审查 nixi-agent）聚合留痕可在退出前 flush（不再依赖条数/窗口）', async () => {
+  const { createImageKindResolver } = await import(pathToFileURL(path.join(REPO, 'core', 'image-kind.js')).href);
+  const api = { _request: async () => { throw new Error('404'); } };
+  const resolve = createImageKindResolver({ storage, api, rateLimiter: { execute: async (fn) => fn() }, unknownTtlMs: 5000 });
+  assert.equal(typeof resolve.flush, 'function', '解析器必须暴露 flush（供 start-monitor 接优雅退出）');
+  await resolve('file_12345678-0000-0000-0000-00000000000a');
+  resolve.flush();   // 不抛即通过（真实接线在 start-monitor 的 shutdown/beforeExit）
+});
