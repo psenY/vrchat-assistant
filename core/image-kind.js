@@ -83,5 +83,8 @@ export function createImageKindResolver({ storage, api, rateLimiter, positiveTtl
     }
   });
   resolveImageKind.flush = () => flushStat(true);   // 优雅退出/单测用 ✓
+  // 💡（审查 nixi-agent）："flush 是否真的把桶排空"要在用例里可断言（只看 typeof/不抛太弱）✓
+  resolveImageKind.stats = () => ({ negHit: stat.negHit, unknown: stat.unknown, fail: stat.fail });
+  // 💡（审查 nixi-agent）："flush 是否真的把桶排空"要在用例里可断言（只看 typeof/不抛太弱）✓
   return resolveImageKind;
 }

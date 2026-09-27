@@ -187,3 +187,15 @@ test('💡（审查 nixi-agent）聚合留痕可在退出前 flush（不再依�
   await resolve('file_12345678-0000-0000-0000-00000000000a');
   resolve.flush();   // 不抛即通过（真实接线在 start-monitor 的 shutdown/beforeExit）
 });
+
+
+test('💡（审查 nixi-agent）flush 必须把聚合桶排空 —— 钉住 flushStat(force) 语义（而非只看 typeof）', async () => {
+  const { createImageKindResolver } = await import(pathToFileURL(path.join(REPO, 'core', 'image-kind.js')).href);
+  const api = { _request: async () => { throw new Error('404'); } };
+  const resolve = createImageKindResolver({ storage, api, rateLimiter: { execute: async (fn) => fn() }, unknownTtlMs: 60_000 });
+  await resolve('file_9a9a9a9a-0000-0000-0000-00000000000a');   // 制造 1 次请求失败
+  assert.equal(resolve.stats().fail, 1, '失败计数应先累积在桶里');
+  resolve.flush();
+  const after = resolve.stats();
+  assert.deepEqual(after, { negHit: 0, unknown: 0, fail: 0 }, 'flush 之后桶必须排空（否则退出时仍会丢日志）');
+});
