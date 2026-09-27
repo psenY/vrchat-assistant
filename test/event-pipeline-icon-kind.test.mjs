@@ -4,8 +4,8 @@
  * 判据来源：用户用 VRCX-Luo 纠正后定案 ——
  *   yixijun/VRCX-Luo src/coordinators/avatarCoordinator.js:255 getAvatarName()
  *     getFile({fileId}) → tags.includes('icon') ⇒ 用户图标；否则按模型图。
- * 生产实测（正反样本各 4 例）：真图标 XIAOFANG小芳/轻墨lighk/白色休止符/CHIEN千苑 ⇒ tags 含 icon；
- *   模型图 晴天时雨/cheese8567/lin凛/三_七0v0 ⇒ tags 为空、名字为 Avatar - … - Image - …。
+ * 生产实测（正反样本各 4 例）：真图标 好友A/好友B/好友C/好友D ⇒ tags 含 icon；
+ *   模型图 某位好友/好友E/好友F/好友G ⇒ tags 为空、名字为 Avatar - … - Image - …。
  * 本测试用**注入的桩解析器**驱动真实 EventPipeline（不打网络）。
  */
 import { test, after } from 'node:test';

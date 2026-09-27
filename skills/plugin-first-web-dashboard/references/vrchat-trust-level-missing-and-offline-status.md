@@ -5,7 +5,7 @@
 
 ## 坑：`/auth/user/friends` 可能对部分用户完全不返回 trustLevel
 
-- 全量好友接口（`?offline=true`）返回的 user 对象**可能整段缺失 `trustLevel` 字段**（容器实测 CHIEN千苑 的 Object.keys 里无任何 trust/level/rank 相关）——watchlist 关注/非标准好友或 API 数据极限，不是前端 bug，别为它反复查 API。
+- 全量好友接口（`?offline=true`）返回的 user 对象**可能整段缺失 `trustLevel` 字段**（容器实测 好友D 的 Object.keys 里无任何 trust/level/rank 相关）——watchlist 关注/非标准好友或 API 数据极限，不是前端 bug，别为它反复查 API。
 - 现象：右侧好友栏名字不上色（`trustColor('')` 返回 `''` → 无 color 样式 → 默认白）。
 - 修复：所有名字着色处 `style="color:${trustColor(x.trustLevel)||'#8a94a0'}"`（空则灰，与 Visitor 一致）——右侧栏 `friendList` / 好友位置页 `friendRow` / 资料弹窗 `profileHeader` 三处（`replace_all` 一次改完）。
 - 回填任务扩展：好友资料补全 `_syncFriendAvatars`（启动 90s 后 + 每 6h，`/auth/user/friends?offline=true`）除了头像也 `upsertFriend({ trustLevel })`；跳过条件放宽为「头像**和** trustLevel 都有才跳过」，否则补缺字段（`if (ex && (ex.avatar_image_url || ex.user_icon) && ex.trust_level) continue`）。

@@ -437,14 +437,14 @@
 - **下游同步**：getWeeklyCompanions 合并 minutes；get_recent_cooplay 输出加 minutes；UI「最近一起玩」行改「N 次 · X 小时/分钟 · 最近 MM-DD」（coMinutes：<60 分钟 / ≥600 取整小时）；SKILL.md get_companions/get_recent_cooplay 口径描述更新。
 - **回归**：新增 test/test-copresence.test.mjs（5 场景：真共同在场 60min、**不同时间同房间不计入（旧引擎误报回归）**、traveling 切分合并、offline 截断、friend-online 开场）+ 周报合并；npm test 9/9、test-registry PASS（103）、doc-drift false。
 - **与 VRCX 的固有残差**（诚实告知用户）：我们只有 WS 位置变迁事件（换房/上线/离线），无游戏内 join/leave 日志——好友中途短暂离房又回来（≤5min 合并内）算连续；好友在我到场前后未产生变迁事件的短 visits 可能漏计；正在进行的会话闭合于「现在」。VRCX 有游戏日志精确到秒。口径对齐后大头数据应一致，小出入属数据源差异。
-- **部署实测**（同日增量部署）：容器 healthy、auth/ws 正常；真实数据新口径输出——是决明子喵 21段/768分钟(≈12.8h)/6天、灰绘游-official 6段/504分钟、cheese8567 1段/88分钟；待用户与 VRCX timeTogether 实测对账。
+- **部署实测**（同日增量部署）：容器 healthy、auth/ws 正常；真实数据新口径输出——是决明子喵 21段/768分钟(≈12.8h)/6天、某位好友 6段/504分钟、好友E 1段/88分钟；待用户与 VRCX timeTogether 实测对账。
 
 ## 2026-08-29 右侧栏新维度：同世界好友 + 最近一起玩（下一步第 2 项完成）
 
 - **同世界好友（纯前端）**：与我在同一世界但不同实例的在线好友（同实例/网页在线排除）。`useFriendGroups.js` 新增 `myWorldId()`（`store.me.location` 首段 wrld_ 解析）与 `sameWorldOf()`（C5 模式与 RightBar/FriendsView 共用）；`groupByWorld()` 同步排除同实例+同世界成员（防同一人两处出现）。RightBar 在「同实例」后加 `pi-compass` 图标分组（折叠 key `sworld`）；FriendsView 加「同世界」tab + 分组（head 带 `fg-loc` 可点开我的房间）。对齐 Luo：`VRCX_sameInstanceAboveFavorites` 置顶语义同款扩展。
 - **最近一起玩（后端+前端）**：新 MCP 工具 `get_recent_cooplay`（102→103，复用周报同屏引擎 `getWeeklyCompanions`——北京自然日逐日 `findCompanions` 匹配合并，输出精简列表 matchCount/daysCount/lastDay 按 matchCount 降序；与 get_companions（单窗口、无天数聚合）和 get_friend_pair_screen（两人版）互补）。dashboard 路由 `/api/dashboard/co-play?days=7&limit=30`（state.js `coPlay` 缓存 10min + `registerSocialRoutes` 接通 dashboardState）；前端 store `loadCoPlay()` 10 分钟节流慢路径。RightBar 在「收藏好友」与「离线好友」之间新增区：默认前 8 + 「展开全部 N 人」、区头可折叠，行显示「N 次同屏 · D 天 · 最近 MM-DD」，头像/昵称从 friends/nicknameMap 补全，点击开资料。登记：core/tool-order.json + vrc-monitor-agent SKILL.md 工具表。
 - **验证**：npm test 7/7、test-registry PASS（103 工具）、check-doc-drift has_drift=false（code/doc 均 103）、全 JS node --check OK、构建通过且 dist 含 同世界好友/pi-compass/最近一起玩/次同屏 标记。
-- **已部署+实测**（2026-08-29，增量部署：只传 12 个变更文件 + docker-compose up -d --build，npm 层缓存命中约 1 分钟）：容器 healthy、auth:true、ws:connected；带 token 实测 `/api/dashboard/co-play?days=7` 返回**真实数据 7 人**（Top：是决明子喵 19次/6天/08-29、轻墨lighk 6次/3天/08-25）；/dashboard 含全部新标记。**增量部署流程成立**（对比全量 tar 快数倍，后续默认增量：SFTP 变更文件 + 重建镜像）。
+- **已部署+实测**（2026-08-29，增量部署：只传 12 个变更文件 + docker-compose up -d --build，npm 层缓存命中约 1 分钟）：容器 healthy、auth:true、ws:connected；带 token 实测 `/api/dashboard/co-play?days=7` 返回**真实数据 7 人**（Top：是决明子喵 19次/6天/08-29、好友B 6次/3天/08-25）；/dashboard 含全部新标记。**增量部署流程成立**（对比全量 tar 快数倍，后续默认增量：SFTP 变更文件 + 重建镜像）。
 
 ## 2026-08-29（晚 2） 修复：动态流「资料变化/已记录到本地事件库」无详情事件——全部解析落地（用户反馈）
 
@@ -591,10 +591,10 @@
 
 ## 2026-08-30（续） 修复：重连竞态导致离线双记（用户反馈：为什么有两个离线）
 
-- **现象**：cheese8567 同一分钟两条下线——一条「离线」（WS 实时推送）+ 一条「对账确认离线」。竞态：重连瞬间对账与 VRChat 的实时下线推送几乎同时到达，对账查询时实时事件尚未入账 → 误判为「断线窗口漏掉」补了第二条。
+- **现象**：好友E 同一分钟两条下线——一条「离线」（WS 实时推送）+ 一条「对账确认离线」。竞态：重连瞬间对账与 VRChat 的实时下线推送几乎同时到达，对账查询时实时事件尚未入账 → 误判为「断线窗口漏掉」补了第二条。
 - **双向去重修复**：① 对账侧——补事件前查同窗口（断线起点起，或近 10 分钟）是否已有该好友 offline 事件，有则只修状态不补事件；② 管道侧——实时下线到达时，若 10 分钟内已有对账补记（reconcile=1）的同好友 offline 事件，实时为准、跳过重复存储。③ 重连后对账**延迟 25 秒**执行，先让突发推送落地再对账。
 - **数据清理**：库内既有重复 1 对（对账 4213 vs 实时 4214），备份后删除对账保留实时。
-- **验证**：npm test 22/22；cheese8567 的离线事件仅剩实时记录。
+- **验证**：npm test 22/22；好友E 的离线事件仅剩实时记录。
 
 ## 2026-08-30（深夜） 三角色专业审查（UI/架构/测试）——发现即修
 

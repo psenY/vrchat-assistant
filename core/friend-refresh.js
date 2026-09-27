@@ -2,7 +2,7 @@
  * core/friend-refresh.js — 好友资料周期刷新（2026-09-15 用户报障根治）
  *
  * 背景：服务纯 WS 驱动、无定期资料拉取。好友 trust_level 等资料字段只在 WS 事件
- * 到达时更新——等级陈旧后无自愈（实测 XIAOFANG小芳已升 Trusted User、库内仍停
+ * 到达时更新——等级陈旧后无自愈（实测 好友A已升 Trusted User、库内仍停
  * Known User）。
  *
  * 方案演进：最初用 GET /auth/user/friends（offline=true）拉列表，实测该端点**硬性

@@ -554,10 +554,10 @@ export function registerDashboardServices(loader, ctx) {
         // 用户定案 B（2026-09-27）：该行没带图标时，取「该行时刻之前最近一次已知图标」（历史如实）
         userIcon: imgProxy(content.userIcon || user.userIcon || user.iconUrl || content.iconUrl
           || histIconAt(row.user_id, row.created_at) || ''),
-        // 2026-09-22 用户报障「为什么会有没头像的（散华ln 非好友）」——实测：该用户 status 事件的载荷里
+        // 2026-09-22 用户报障「为什么会有没头像的（某位非好友 非好友）」——实测：该用户 status 事件的载荷里
         // `avatarImageUrl` **就是空串** ✗（WS 没带图），所以本块即使拼了 avatarUrl 也不会有图 ✓。
         // 正解：回退到「该 userId **最近一次带图的事件**」（数据就在 events 表里 ✓ 不需要发 API ✓），带进程内缓存 + 负缓存 ✓。
-        // 2026-09-22 用户报障「为什么会有没头像的（散华ln 非好友，半天也不加载）」：
+        // 2026-09-22 用户报障「为什么会有没头像的（某位非好友 非好友，半天也不加载）」：
         // 本块（profile 变更）**此前没有 avatarUrl** ✗，而前端 playerAvatarOf 优先读 avatarUrl ⇒ 非好友行头像空白 ✓。
         // 数据其实就在事件载荷里（status 事件自带 avatarImageUrl ✓）—— 不是「没加载」，是没被拼进去 ✓。
         avatarUrl: avatarOf(content.userIcon || user.userIcon || user.iconUrl || histIconAt(row.user_id, row.created_at),

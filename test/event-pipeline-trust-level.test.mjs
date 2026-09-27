@@ -3,7 +3,7 @@
  *
  * 背景（2026-09-15 用户报障）：好友资料五类变更（avatar/bio/status/user_icon/pronouns）
  * 都有 diff 与回写，唯独漏了 trust_level——好友等级变化既不产生 friend-update 事件，
- * 基线也永远不更新（生产实证 XIAOFANG小芳已升 Trusted User、库内仍停 Known User）。
+ * 基线也永远不更新（生产实证 好友A已升 Trusted User、库内仍停 Known User）。
  *
  * 断言：① diff 到 trust_level 变化时插入 friend-update 事件（contentJson.type=trust_level、
  *   带新旧值）；② 回写 upsertFriend 带 trustLevel（基线更新 → 后续不再重复报）；
@@ -29,15 +29,15 @@ function makePipeline(prevFriend) {
 }
 
 const BASE_USER = {
-  id: 'usr_xiaofang', displayName: 'XIAOFANG小芳', status: 'active', statusDescription: '',
+  id: 'usr_xiaofang', displayName: '好友A', status: 'active', statusDescription: '',
   bio: '', userIcon: '', pronouns: '', currentAvatarImageUrl: '',
 };
 
 test('等级变化：插入 trust_level 事件 + 回写基线（Known User → Trusted User）', async () => {
-  const prev = { user_id: 'usr_xiaofang', display_name: 'XIAOFANG小芳', trust_level: 'Known User', status: 'active', status_description: '', bio: '', user_icon: '', pronouns: '', avatar_image_url: '' };
+  const prev = { user_id: 'usr_xiaofang', display_name: '好友A', trust_level: 'Known User', status: 'active', status_description: '', bio: '', user_icon: '', pronouns: '', avatar_image_url: '' };
   const { pipeline, events, upserts } = makePipeline(prev);
   await pipeline.process({
-    type: 'friend-update', userId: 'usr_xiaofang', displayName: 'XIAOFANG小芳',
+    type: 'friend-update', userId: 'usr_xiaofang', displayName: '好友A',
     receivedAt: '2026-09-15T13:26:00.000Z',
     // tag→名称口径见 ui/src/utils.js:165：trusted=Known User、veteran/legend=Trusted User（#222 审核 🔴2 纠正）
     content: { userId: 'usr_xiaofang', user: { ...BASE_USER, tags: ['system_trust_veteran'] } },
@@ -51,10 +51,10 @@ test('等级变化：插入 trust_level 事件 + 回写基线（Known User → T
 });
 
 test('等级未变化：不产生 trust_level 事件', async () => {
-  const prev = { user_id: 'usr_xiaofang', display_name: 'XIAOFANG小芳', trust_level: 'Trusted User', status: 'active', status_description: '', bio: '', user_icon: '', pronouns: '', avatar_image_url: '' };
+  const prev = { user_id: 'usr_xiaofang', display_name: '好友A', trust_level: 'Trusted User', status: 'active', status_description: '', bio: '', user_icon: '', pronouns: '', avatar_image_url: '' };
   const { pipeline, events } = makePipeline(prev);
   await pipeline.process({
-    type: 'friend-update', userId: 'usr_xiaofang', displayName: 'XIAOFANG小芳',
+    type: 'friend-update', userId: 'usr_xiaofang', displayName: '好友A',
     receivedAt: '2026-09-15T13:30:00.000Z',
     content: { userId: 'usr_xiaofang', user: { ...BASE_USER, trust_level: 'Trusted User' } },
   });
@@ -62,10 +62,10 @@ test('等级未变化：不产生 trust_level 事件', async () => {
 });
 
 test('无基线（首次采集 prev 无 trust_level）：不误报', async () => {
-  const prev = { user_id: 'usr_xiaofang', display_name: 'XIAOFANG小芳', trust_level: '', status: 'active', status_description: '', bio: '', user_icon: '', pronouns: '', avatar_image_url: '' };
+  const prev = { user_id: 'usr_xiaofang', display_name: '好友A', trust_level: '', status: 'active', status_description: '', bio: '', user_icon: '', pronouns: '', avatar_image_url: '' };
   const { pipeline, events } = makePipeline(prev);
   await pipeline.process({
-    type: 'friend-update', userId: 'usr_xiaofang', displayName: 'XIAOFANG小芳',
+    type: 'friend-update', userId: 'usr_xiaofang', displayName: '好友A',
     receivedAt: '2026-09-15T13:32:00.000Z',
     content: { userId: 'usr_xiaofang', user: { ...BASE_USER, trust_level: 'Trusted User' } },
   });
@@ -73,12 +73,12 @@ test('无基线（首次采集 prev 无 trust_level）：不误报', async () =>
 });
 
 test('WS 载荷缺 tags：不得用载荷 trust_level 回落（2026-09-22 天天刷振荡回归）', async () => {
-  const prev = { user_id: 'usr_xiaofang', display_name: 'XIAOFANG小芳', trust_level: 'Trusted User', status: 'active', status_description: '', bio: '', user_icon: '', pronouns: '', avatar_image_url: '' };
+  const prev = { user_id: 'usr_xiaofang', display_name: '好友A', trust_level: 'Trusted User', status: 'active', status_description: '', bio: '', user_icon: '', pronouns: '', avatar_image_url: '' };
   const { pipeline, events, upserts } = makePipeline(prev);
   // 缺 tags、只带过时的 trust_level=Known User：旧逻辑会据此把库里已升的 Trusted User 覆盖回去，
   // 于是 6 小时后的权威轮询（逐好友 GET /users/{id} 按 tags 推导）又报一次「升到 Trusted User」→ 每天刷一条。
   await pipeline.process({
-    type: 'friend-update', userId: 'usr_xiaofang', displayName: 'XIAOFANG小芳',
+    type: 'friend-update', userId: 'usr_xiaofang', displayName: '好友A',
     receivedAt: '2026-09-22T08:37:00.000Z',
     content: { userId: 'usr_xiaofang', user: { ...BASE_USER, trust_level: 'Known User' } },
   });

@@ -291,7 +291,7 @@ export class EventPipeline {
       // 用户 2026-09-22 报「信任等级 … 天天刷」根因：WS 的 user 载荷**可能缺 tags**，
       // 此时若回落到载荷里的 trust_level 字段（VRChat 的部分/过时字段），会把权威值
       // （逐好友 GET /users/{id} → tags 推导，见 friend-refresh.js）覆盖回旧等级，
-      // 于是「升级 → 被覆盖 → 下次轮询再报升级」振荡（生产实证：晴天时雨/无敌只因哥哥
+      // 于是「升级 → 被覆盖 → 下次轮询再报升级」振荡（生产实证：某位好友/另一位好友
       // 库里停在 Known User，而事件里已升 Trusted User）。⇒ 只认 tags 推导；无 tags 视为
       // 未知：既不 diff 也不回写，避免把好数据写坏。
       const trust = trustFromTags(userObj.tags) || '';
@@ -438,7 +438,7 @@ export class EventPipeline {
 
         // 信任等级（2026-09-15 用户报障）：此前五类资料变更都跟踪、唯独漏了 trust_level——
         // 且回写也不带 trustLevel → 好友等级变化既无事件、基线也永远不更新（生产实证：
-        // XIAOFANG小芳已升 Trusted User，库内仍停 Known User）。VRChat 的 user 对象
+        // 好友A已升 Trusted User，库内仍停 Known User）。VRChat 的 user 对象
         // 携带 trust_level（LimitedUser 字段），与其它字段同源 diff 即可。
         const trustChanged = prev.trust_level && trust
           && (prev.trust_level || '') !== trust;

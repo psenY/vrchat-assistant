@@ -23,7 +23,7 @@
 
 **用户反馈**："没获取到不要灰色。容易混淆成萌新。你研究一下VRCX到底怎么获取的。"
 
-**实证**：VRChat API 对部分用户（如 CHIEN千苑）`/auth/user/friends` 和 `/users/{id}` 都不返回 `trustLevel` 字段，但 **`tags` 里有 `system_trust_*` 标记**。
+**实证**：VRChat API 对部分用户（如 好友D）`/auth/user/friends` 和 `/users/{id}` 都不返回 `trustLevel` 字段，但 **`tags` 里有 `system_trust_*` 标记**。
 
 **VRCX 做法**（src/shared/utils/userTransforms.js `computeTrustLevel`）——从 tags 推断，映射为**显示名**：
 - `system_trust_veteran` → **Trusted User**（紫，最高）
