@@ -287,9 +287,9 @@ export class EventPipeline {
     const prevChain = this._updateChain.get(key) || Promise.resolve();
     const run = prevChain.then(() => this._handleUpdateInner(event));
     const chain = run.then(() => {}, () => {});
-  this._updateChain.set(key, chain);
-  // 💡2（审查 EMeowAGENT）：链只增不删会随好友数缓慢增长 ⇒ 结算后若仍是链尾就移除该 key ✓
-  chain.then(() => { if (this._updateChain.get(key) === chain) this._updateChain.delete(key); });
+    this._updateChain.set(key, chain);
+    // 💡2（审查 EMeowAGENT）：链只增不删会随好友数缓慢增长 ⇒ 结算后若仍是链尾就移除该 key ✓
+    chain.then(() => { if (this._updateChain.get(key) === chain) this._updateChain.delete(key); });
     return run;
   }
 
