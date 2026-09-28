@@ -69,3 +69,36 @@ test('自己只换用户图标（非模型图文件 + 非 avatarBanner 档）⇒
   await pipeline.process(selfEvent(ICON_A, 'color', '2026-09-28T18:20:00.000Z'));
   assert.equal(countOf('user_icon'), 1, '只换图标时要记 user_icon');
 });
+
+// ── 换模型时 VRChat 推的是【同实例 user-location + 新 iconUrl】（2026-09-28 生产实测 id 18819/18820）──
+const locEvent = (icon, loc, at) => ({
+  type: 'user-location',
+  userId: UID,
+  displayName: 'psenY7',
+  location: loc,
+  receivedAt: at,
+  content: { userId: UID, location: loc, instance: {}, travelingToLocation: '', user: { id: UID, displayName: 'psenY7', iconUrl: icon, bannerType: 'avatarBanner' } },
+});
+const LOC_SAME = 'wrld_f2de4d2d-324b-485f-a8bf-ec93bed3382a:58446~private(usr_self)~region(jp)';
+const LOC_OTHER = 'wrld_f2de4d2d-324b-485f-a8bf-ec93bed3382a:99999~private(usr_self)~region(jp)';
+const locRows = (loc) => storage.query(
+  "SELECT COUNT(*) n FROM events WHERE user_id = $u AND type = 'user-location' AND json_extract(content_json,'$.location') = $l",
+  { $u: UID, $l: loc })[0].n;
+
+test('🔴 换模型（同实例 user-location + 新 iconUrl）⇒ 记「模型变动」且不产重复位置行（用户 2026-09-28 报障「换模型被显示为换地图」）', async () => {
+  const before = countOf('avatar');
+  await pipeline.process(locEvent(MODEL_A, LOC_SAME, '2026-09-28T19:09:23.000Z'));
+  await pipeline.process(locEvent(MODEL_B, LOC_SAME, '2026-09-28T19:09:28.000Z'));
+  assert.equal(countOf('avatar') - before, 1, '同实例重发 + iconUrl 变 ⇒ 必须记 1 条模型变动');
+  assert.equal(locRows(LOC_SAME), 1, '同实例重复不得落第二条位置行（否则动态流显示成「换地图」）');
+});
+
+test('同实例、iconUrl 也没变 ⇒ 不落新位置行（纯重发）', async () => {
+  await pipeline.process(locEvent(MODEL_B, LOC_SAME, '2026-09-28T19:12:00.000Z'));
+  assert.equal(locRows(LOC_SAME), 1, '仍是同一条');
+});
+
+test('换到别的实例 ⇒ 照常落位置行（去重不能把真位置变化吃掉）', async () => {
+  await pipeline.process(locEvent(MODEL_B, LOC_OTHER, '2026-09-28T19:13:00.000Z'));
+  assert.equal(locRows(LOC_OTHER), 1);
+});

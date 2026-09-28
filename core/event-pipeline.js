@@ -252,11 +252,27 @@ export class EventPipeline {
     // 自己的位置变化：user-location 事件的 content 没有独立 worldId 字段，
     // 只有 location 字符串（如 "wrld_xxx:123~hidden(usr)~region(jp)"），
     // 从 location 解析 worldId 落库，便于查询自己的世界访问历史。
+    // ① 先做资料 diff（storeRawEvent:false —— 原始位置事件由下面统一落库，避免重复行）：
+    //    VRChat 换模型时推的是【同实例 user-location + 新 iconUrl】⇒ 只有在这条路上也做 diff 才能记「模型变动」✓
+    await this._handleUpdateInner(event, { storeRawEvent: false });
     const location = event.location || '';
     const worldId = location.startsWith('wrld_') ? location.split(':')[0] : '';
     const worldName = worldId ? await this._resolveWorldName(worldId) : '';
     // 仅存事件（不 upsertFriend——user-location 是自己的位置，不更新好友状态表）
-    this._storeEvent({ ...event, worldId }, worldName);
+    // ② 同实例重复不落位置事件（与好友侧 VRC_MONITOR_DEDUP_SAME_INSTANCE_LOCATION 同款）：
+    //    换模型 / 客户端重新同步会重发完全相同的 location ⇒ 落库后动态流会显示成「换地图」✗（用户 2026-09-28 报障）
+    const dedupOn = Number(process.env.VRC_MONITOR_DEDUP_SAME_INSTANCE_LOCATION ?? 1) !== 0;
+    const winSec = Number(process.env.VRC_MONITOR_DEDUP_SAME_INSTANCE_WINDOW_SECONDS ?? 300);
+    let dupLocation = false;
+    if (dedupOn && location) {
+      try {
+        const hit = this.storage.query(
+          `SELECT COUNT(*) AS n FROM events WHERE user_id = $uid AND type = 'user-location' AND json_extract(content_json,'$.location') = $loc AND created_at > datetime('now', '-' || $win || ' seconds')`,
+          { $uid: event.userId, $loc: location, $win: winSec })[0];
+        dupLocation = !!(hit && hit.n > 0);
+      } catch { /* 查询失败按不去重（宁多一条也不静默丢） */ }
+    }
+    if (!dupLocation) this._storeEvent({ ...event, worldId }, worldName);
     log.debug(`我的位置: ${truncateCodePoints(location, 60)}`);
     // 逛过的世界同步标记 world_kb.visited（2026-08-12 修复）：
     // 之前 visited 只在 scan_new_worlds 时更新，用户逛过但没再扫描的世界会一直标"未逛"，
@@ -305,7 +321,7 @@ export class EventPipeline {
   _selfUpdateBaseline(userId, before) {
     try {
       const rows = this.storage.query(
-        `SELECT content_json AS c FROM events WHERE user_id = $uid AND type = 'user-update' AND created_at < $before ORDER BY created_at DESC LIMIT 1`,
+        `SELECT content_json AS c FROM events WHERE user_id = $uid AND type IN ('user-update','user-location') AND json_extract(content_json,'$.user') IS NOT NULL AND created_at < $before ORDER BY created_at DESC LIMIT 1`,
         { $uid: userId, $before: before || new Date().toISOString() });
       const u = rows && rows[0] ? (JSON.parse(rows[0].c || '{}').user || null) : null;
       if (!u) return null;
@@ -323,11 +339,13 @@ export class EventPipeline {
       return null;
     }
   }
-  async _handleUpdateInner(event) {
+  async _handleUpdateInner(event, opts = {}) {
     const userId = event.userId;
     const displayName = event.displayName;
     // 自己的资料变更走同一条 diff，但基线来源与落库目标不同（跳过 friends 写入）✓
-    const isSelfUpdate = event.type === 'user-update';
+    // 自己的两类事件都走这条 diff：user-update（资料推送）与 user-location —— 后者是换模型时 VRChat 重发的
+    // 同实例 location（载荷 iconUrl 已变；2026-09-28 实测 id 18819/18820 同实例、iconUrl 不同文件）✓
+    const isSelfUpdate = event.type === 'user-update' || event.type === 'user-location';
 
     // 好友资料变更追踪（2026-08-19）：friend-update 推送完整 user 对象
     // （currentAvatarImageUrl/bio/statusDescription/userIcon/pronouns 等），
@@ -440,7 +458,7 @@ export class EventPipeline {
         //   该形态仍会记成 user_icon（本层无更强证据，宁可按字段名语义处理，不猜）。
         //   与 iconChanged 的关系：两者共用 iconIsModelImage —— 这里把「同源图标变化」升格为模型变更，
         //   iconChanged 那边则据此排除它，语义互补、不会双记 ✓。
-        if (!avatarChanged && iconKind === 'unknown' && iconIsModelImage && avatarFileId(prev.avatar_image_url || '') !== iconFileId) {
+        if (!isSelfUpdate && !avatarChanged && iconKind === 'unknown' && iconIsModelImage && avatarFileId(prev.avatar_image_url || '') !== iconFileId) {
           newAvatarUrl = newUserIcon;   // ★ 写回基线：同一文件的下一次推送不再重复补事件（审查 🔴）
           changes.push({ type: 'avatar', payload: {
             avatarName: userObj.currentAvatarName || '',
@@ -602,7 +620,7 @@ export class EventPipeline {
     // 非空字段仍会被补齐（无 user 对象时跳过，不影响既有值）。
     if (!isSelfUpdate) this._syncProfileFromEvent(userId, userObj);
 
-    this._storeEvent(event);
+    if (opts.storeRawEvent !== false) this._storeEvent(event);
   }
 
   /**
