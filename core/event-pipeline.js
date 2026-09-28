@@ -119,6 +119,10 @@ export class EventPipeline {
         return await this._handleUserLocation(event);
       case 'friend-update':
         return await this._handleUpdate(event);
+      // 自己的资料变更（user-update）：载荷与 friend-update 同构 ⇒ 走同一条 diff；
+      // 自己不是好友 ⇒ 基线用事件级（_selfUpdateBaseline），且不回写 friends 表。
+      case 'user-update':
+        return await this._handleUpdate(event);
       case 'friend-active':
         return await this._handleActive(event);
       case 'friend-add':
@@ -293,9 +297,37 @@ export class EventPipeline {
     return run;
   }
 
+  /**
+   * 自己的资料基线：自己不是好友、不在 friends 表 ⇒ 用【上一条 user-update 事件的 user 快照】当 prev
+   * （与 friends 行同形：user_icon / avatar_image_url / status / status_description / bio / pronouns）。
+   * 没有上一条时返回 null ⇒ 只初始化不产变更（与好友首次采集同口径）。
+   */
+  _selfUpdateBaseline(userId, before) {
+    try {
+      const rows = this.storage.query(
+        `SELECT content_json AS c FROM events WHERE user_id = $uid AND type = 'user-update' AND created_at < $before ORDER BY created_at DESC LIMIT 1`,
+        { $uid: userId, $before: before || new Date().toISOString() });
+      const u = rows && rows[0] ? (JSON.parse(rows[0].c || '{}').user || null) : null;
+      if (!u) return null;
+      const isBanner = u.bannerType === 'avatarBanner';
+      return {
+        user_id: userId,
+        user_icon: u.iconUrl || u.userIcon || '',
+        avatar_image_url: (isBanner ? (u.iconUrl || u.currentAvatarImageUrl || '') : ''),
+        status: u.status || '',
+        status_description: u.statusDescription || '',
+        bio: u.bio || '',
+        pronouns: u.pronouns || '',
+      };
+    } catch {
+      return null;
+    }
+  }
   async _handleUpdateInner(event) {
     const userId = event.userId;
     const displayName = event.displayName;
+    // 自己的资料变更走同一条 diff，但基线来源与落库目标不同（跳过 friends 写入）✓
+    const isSelfUpdate = event.type === 'user-update';
 
     // 好友资料变更追踪（2026-08-19）：friend-update 推送完整 user 对象
     // （currentAvatarImageUrl/bio/statusDescription/userIcon/pronouns 等），
@@ -315,7 +347,9 @@ export class EventPipeline {
       // 新版资料系统：currentAvatar* 已被上游移除，实际字段是 iconUrl（bannerType=avatarBanner 时指向模型图）
       // ⇒ 用旧字段会让 avatarChanged 恒假、永远没有模型变动事件。注意 bannerType 会变：非 avatarBanner 时视为无模型信息。
       let newAvatarUrl = avatarImageUrlFromUser(userObj);   // let：重分类路径要把它置为同文件的模型图 URL（写回基线用）
-      const prev = this.storage.getFriend(userId);
+      const prev = isSelfUpdate
+        ? this._selfUpdateBaseline(userId, event.receivedAt)
+        : this.storage.getFriend(userId);
       if (prev && prev.user_id) {
         const changes = [];
         // ⭐ 2026-09-26（审查 🔴 同类问题）：同一个文件的不同 URL 形态（…/1/256 ↔ …/1/512）不应算作「换了模型」——
@@ -494,7 +528,7 @@ export class EventPipeline {
         }
         for (const c of changes) {
           this.storage.insertEvent({
-            type: 'friend-update',
+            type: isSelfUpdate ? 'user-update' : 'friend-update',
             userId,
             displayName,
             contentJson: { userId, displayName, type: c.type, ...c.payload },
@@ -544,7 +578,7 @@ export class EventPipeline {
         }
       }
 
-      this.storage.upsertFriend({
+      if (!isSelfUpdate) this.storage.upsertFriend({
         userId,
         displayName,
         status: userObj.status || '',
@@ -557,7 +591,7 @@ export class EventPipeline {
         lastSeen: event.receivedAt,
       });
     } else {
-      this.storage.upsertFriend({
+      if (!isSelfUpdate) this.storage.upsertFriend({
         userId,
         displayName,
         lastSeen: event.receivedAt,
@@ -566,7 +600,7 @@ export class EventPipeline {
     // diff 之后回写权威资料（只补非空字段，幂等；顺序关键——先 diff 再写，否则基线被覆盖丢变更）。
     // 注：上方 L297 已写过同批字段，此处为防御性补漏——若将来主写入路径收窄/字段缺项，
     // 非空字段仍会被补齐（无 user 对象时跳过，不影响既有值）。
-    this._syncProfileFromEvent(userId, userObj);
+    if (!isSelfUpdate) this._syncProfileFromEvent(userId, userObj);
 
     this._storeEvent(event);
   }
