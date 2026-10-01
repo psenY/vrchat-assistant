@@ -10,6 +10,8 @@
  * 纯搬移重构：服务名、owner、实现逐字节一致，无行为变更。
  */
 import { isSafeModeEnabled } from './safe-mode.js';
+import { getLogger } from './logger.js';   // 2026-09-22 评审 ⚠️1：新增的外部调用点必须逐分支留痕（不许 console.log 绕过 VRC_MONITOR_LOGGER_*）
+const log = getLogger('dashboard');
 import { resolveSelfPresence } from './self-presence.js';
 
 // 世界缓存新鲜度（2026-09-15 新增，env 可配）：world_cache 里的名字/描述/标签是**快照**，
@@ -42,10 +44,7 @@ function worldCacheStale(updatedAt) {
   if (Number.isNaN(t)) return true;
   return Date.now() - t >= WORLD_CACHE_TTL_MS;
 }
-import { imgProxy, avatarThumb, avatarOf, avatarFileId, parseAvatarName, isPlausibleAvatarName } from './img-util.js';
-import { getLogger } from './logger.js';
-
-const log = getLogger('dashboard');
+import { imgProxy, avatarThumb, avatarOf, avatarFileId, isPlausibleAvatarName } from './img-util.js';
 import { handleGetFriendWorldStats } from './tools/events.js';
 
 // 通知类型→中文标签（与前端 ui/src/utils.js 的 notificationTypeLabels 对齐，供 see/hide-notification 摘要拼类型）。
@@ -81,21 +80,6 @@ function notificationTypeLabel(content) {
 
 // 自己 userId 的权威推导：user-location/user-update 事件只会是自己的（事件管线保证），
 // 种子导入/列表展示用它排除自己（/auth/user 在启动早期可能失败或缓存未就绪）
-// 2026-09-22：非好友没有 currentAvatarName ✗，但 iconUrl 的 fileId 可解出当前模型名 ✓
-// （链：iconUrl → avatarFileId → planet_cache[avatar_name:<fid>] ← 由追踪刷新/事件补名写入 ✓）
-function avatarNameFromIconUrl(storage, iconUrl) {
-  try {
-    const fid = avatarFileId(iconUrl);
-    if (!fid) return '';
-    const row = storage.query('SELECT payload FROM planet_cache WHERE key = $k', { $k: 'avatar_name:' + fid })[0];
-    if (!row) return '';
-    const v = JSON.parse(row.payload || '{}');
-    if (v.until && v.until <= Date.now()) return '';
-    const nm = String(v.name || '');
-    return isPlausibleAvatarName(nm) ? nm : '';
-  } catch { return ''; }
-}
-
 export function getSelfUserId(storage) {
   try {
     const row = storage.query(
@@ -318,7 +302,7 @@ export function registerDashboardServices(loader, ctx) {
     // 「从哪来」：向前回溯找上一个**真实世界**位置。
     // VRChat 换房前几乎总先推一条 traveling（也是 friend-location 类型），若只取上一条事件，
     // 到达行的 prev 几乎都是 traveling（无 world 对象，名字为空）→「从哪」永远显示不出来（用户反馈）。
-    // 规则（2026-09-22 用户定）：回溯最多 25 条，跳过 traveling/offline，取**第一条真实位置**（含私人房等无世界名的形态）；
+    // 规则：回溯最多 25 条，跳过 traveling/offline 行，取第一条带世界的位置；
     // 同世界重进的行（prev==当前世界）由前端 previousWorldName !== worldName 条件自然隐藏。
     // 兼容迁移数据（顶层 worldName）与实时数据（world 对象）两种字段形态。
     const previousLocationOf = (userId, eventId) => {
@@ -327,15 +311,14 @@ export function registerDashboardServices(loader, ctx) {
       let prev = null;
       try {
         const r = ctx.storage.query(
-          // 与右端同口径：世界名/图优先取 world_cache（VRChat 对私人房/hidden 房的推送
-          // 经常不下发 content.world ⇒ 只读载荷会让左端只剩实例信息、不显示世界名与缩略图）。
+          // 与右端（目的地）统一口径：世界名/图优先取 world_cache —— VRChat 对私人房 / hidden 房的
+          // friend-location 推送经常不下发 content.world，只读载荷会让左端「从哪」只剩实例信息、
+          // 显示不出世界名与缩略图（用户反馈「我自己的房间也看不到是什么图吗」）。
           // world_id 优先用事件列（写入时已规范化），旧数据缺失时回落到载荷里的 world.id。
-          `SELECT e.content_json AS content_json, wc.name AS wc_name, wc.image_url AS wc_image,
-                  e.world_name AS e_world_name
+          `SELECT e.content_json AS content_json, wc.name AS wc_name, wc.image_url AS wc_image, e.world_name AS e_world_name
            FROM events e
            LEFT JOIN world_cache wc
-             ON wc.world_id = COALESCE(NULLIF(e.world_id, ''),
-                  CASE WHEN json_valid(e.content_json) THEN json_extract(e.content_json, '$.world.id') END)
+             ON wc.world_id = COALESCE(NULLIF(e.world_id, ''), CASE WHEN json_valid(e.content_json) THEN json_extract(e.content_json, '$.world.id') END)
            WHERE e.user_id = $uid AND e.type IN ('friend-location', 'user-location')
              AND e.id < $id ORDER BY e.id DESC LIMIT 25`,
           { $uid: userId, $id: eventId });
@@ -343,18 +326,16 @@ export function registerDashboardServices(loader, ctx) {
           let cj = {};
           try { cj = JSON.parse(row.content_json || '{}'); } catch { /* malformed */ }
           const loc = cj.location || '';
-          // 用 startsWith 而不是 === ：VRChat 的「传送中」实际形态是 traveling:traveling
-          // （2026-09-25 实测），精确匹配会漏 ⇒ prev 落在没有 world 的那条上 ⇒ 左端名/图全空。
+          // 用 startsWith 而不是 === ：线上「传送中」的形态是 traveling:traveling（2026-09-25 实测），
+          // 精确匹配会漏 ⇒ prev 落在没有 world 对象的那条上 ⇒ 左端「从哪」的世界名/图全空。
           if (!loc || loc.startsWith('traveling') || loc === 'offline' || loc === 'offline:offline') continue;
           const worldId = cj.world?.id || (loc.startsWith('wrld_') ? loc.split(':')[0] : '');
           // 缓存优先（与右端同口径）⇒ 私人房也能显示世界名与缩略图
           const cachedName = row.wc_name || '';
           const cachedImage = row.wc_image || '';
-          const worldName = cachedName || row.e_world_name || cj.world?.name || cj.worldName || '';   // #262：补事件列兜底
-          // 用户 2026-09-22 定：位置行要显示**状态到状态**（如「私人房间 → 私人房间」）——
-          // 因此「上一条非 traveling/offline 的位置」就是答案，哪怕它是私人房这类**没有世界名**的形态；
-          // 旧写法在这里 continue 掉没有世界名的行，导致一路回溯到上一个真世界 → 显示成「<旧世界名> → 私人房间」✗。
-          // 只有 location 完全为空的行才跳过。
+          // 与右端 COALESCE(NULLIF(wc.name, ''), e.world_name, '') 字面对齐：缓存 -> 事件列 -> 载荷（载荷层为左端独有兜底）
+          const worldName = cachedName || row.e_world_name || cj.world?.name || cj.worldName || '';
+          if (!worldName && !worldId) continue;
           prev = {
             location: loc,
             worldName,
@@ -462,13 +443,14 @@ export function registerDashboardServices(loader, ctx) {
       const world = content.world || {};
       const worldId = row.world_id || content.worldId || world.id || '';
       const worldName = row.world_name || world.name || '';
+      // VRChat 的「传送中」实际推的是 location = traveling:traveling（不是纯 traveling，2026-09-25 生产实测）：
+      //  它既躲过 parseLocInfo 的特殊值特判（instType 回落成 public、instId 变成 traveling），
+      //  也躲过前端 x.location === 'traveling' 的判断 ⇒ 位置行会渲染成荒谬的「公开 · traveling」。
+      //  在 DTO 层统一规范化：一处改动，历史事件同样生效，前端无需调整。
       const rawLocation = content.location || '';
-      // ⚠️ VRChat 的「传送中」实际推的是 `traveling:traveling`（不是纯 `traveling`）——
-      //    它既躲过 parseLocInfo 的特殊值特判（instType 回落成 public、instId 变成 traveling），
-      //    也躲过前端 `x.location === 'traveling'` 的判断 ⇒ 位置行渲染成荒谬的「公开 · traveling」
-      //    （2026-09-25 用户报障「什么叫公开传送中」）。在 DTO 层统一规范化：一处改、
-      //    对历史事件同样生效（不必回溯改库），前端无需改动。
-      const location = rawLocation.startsWith('traveling:') ? 'traveling' : rawLocation;   // #261：判据统一为前缀（变体不止一种）
+      // 判据与 event-pipeline / previousLocationOf 保持统一：用【前缀】而不是精确比 ——
+      // 上游若再出现 traveling:<其他> 变体，两边不会出现「pipeline 已放行、DTO 仍漏」的不一致。
+      const location = rawLocation.startsWith('traveling:') ? 'traveling' : rawLocation;
       const locInfo = parseLocInfo(location);
       const prev = (row.type === 'friend-location' || row.type === 'user-location') ? previousLocationOf(row.user_id, row.id) : null;
       // 群组名解析（缓存优先）：group-joined/group-member-updated 平铺 groupId；
@@ -500,10 +482,6 @@ export function registerDashboardServices(loader, ctx) {
         userId: row.user_id,
         displayName: row.display_name || row.friendDisplayName || user.displayName || row.user_id || '系统',
         trustLevel: row.trustLevel || '',
-        // 信任等级变更的"原值"（用户 2026-09-22 报障：动态流显示「(空) → Trusted User」）：
-        // event-pipeline/friend-refresh 写入的 content_json 带 previousTrustLevel，但本 DTO 的字段白名单
-        // 漏了它 → 前端 `x.previousTrustLevel || '(空)'` 永远渲染成 (空)。
-        previousTrustLevel: content.previousTrustLevel || '',
         createdAt: row.created_at,
         worldId,
         worldName,
@@ -536,7 +514,7 @@ export function registerDashboardServices(loader, ctx) {
         summary: row.type === 'friend-location' ? '位置变化'
           : row.type === 'friend-update' ? ({ avatar: '更换模型', status: '状态变化', bio: '简介变化', user_icon: '更新用户头像', pronouns: '更新代词' }[content.type] || '资料变化')
           : row.type === 'friend-online' ? '上线'
-          : row.type === 'friend-offline' ? (content.reconcile ? '对账补记离线' : '离线')
+          : row.type === 'friend-offline' ? (content.reconcile ? '掉线期间离线' : '离线')
           : row.type === 'friend-active' ? (content.platform === 'web' ? '转网页端在线' : content.platform === 'nativemobile' ? '转App在线' : '状态变化')
           : row.type === 'notification' || row.type === 'notification-v2' ? (content.message || content.title || '通知')
           : row.type === 'notification-v2-update' || row.type === 'notification-update' ? (content.updates && content.updates.seen ? '通知已读' : '通知状态更新')
@@ -558,40 +536,37 @@ export function registerDashboardServices(loader, ctx) {
         statusDescription: user.statusDescription || content.statusDescription || '',
         previousStatus: content.previousStatus || '',
         previousStatusDescription: content.previousStatusDescription || '',
-        // 2026-09-22：非好友两个字段都空 ⇒ 用 iconUrl 链兜底 ✓（弹窗「正在使用的模型」就能显示 ✓）
-        avatarName: (() => {   // 2026-09-27：显示前一并挡掉 blob/文件名类脏值
-          const nm = content.avatarName || user.currentAvatarName || avatarNameFromIconUrl(ctx.storage, user.iconUrl);
-          return isPlausibleAvatarName(nm) ? nm : '';
-        })(),
+        avatarName: content.avatarName || user.currentAvatarName || '',
         previousAvatarName: isPlausibleAvatarName(content.previousAvatarName) ? content.previousAvatarName : '',
         // avatarId 富化：WS 推送不含 currentAvatar，从 planet_cache 的 imageUrl→avatarId 映射反查（_syncFriendAvatars 建立）
         avatarId: content.avatarId || user.currentAvatar || (() => {
-          // 2026-09-22 issue #225：收敛到 avatarFileId()（同时认 /file/ 与 /image/ 两种形态 ✓；此前内联正则漏 image ✗）
-          const fid = avatarFileId(content.avatarImageUrl || '');
-          if (!fid) return '';
+          // 2026-09-22 #225：收敛到 avatarFileId()（原内联正则只认 /file/ ✗）
+          // 2026-09-22 评审纠正：avatarFileId() 返回**字符串**（不是正则 match 数组）✗
+          const fm = avatarFileId(content.avatarImageUrl) || '';
+          if (!fm) return '';
           try {
-            const avr = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key = $k`, { $k: `avimg:${fid}` });
+            const avr = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key = $k`, { $k: `avimg:${fm}` });
             if (avr[0]) { const v = JSON.parse(avr[0].payload); if (v && v.avatarId) return v.avatarId; }
           } catch { /* ignore */ }
           return '';
         })(),
-        avatarImageUrl: imgProxy(content.avatarImageUrl || user.currentAvatarImageUrl || user.iconUrl || ''),
+        // 模型图：只用事件载荷（已过 bannerType 门禁）或仍在的旧字段 ——
+        // 不能再回落 user.iconUrl（那是 users 表的原始值，非 avatarBanner 时不是模型图；
+        // 写入侧 event-pipeline 已按门禁存进 avatar_image_url，读取侧应与它统一口径）。
+        avatarImageUrl: imgProxy(content.avatarImageUrl || user.currentAvatarImageUrl || ''),
         avatarThumbnailUrl: imgProxy(content.avatarThumbnailUrl || user.currentAvatarThumbnailImageUrl || (content.avatarImageUrl ? avatarThumb(content.avatarImageUrl) : '')),
         avatarTags: Array.isArray(content.avatarTags) ? content.avatarTags : (Array.isArray(user.currentAvatarTags) ? user.currentAvatarTags : []),
         previousAvatarImageUrl: imgProxy(content.previousAvatarImageUrl || ''),
         bio: content.bio || user.bio || '',
         previousBio: content.previousBio || '',
-        // 用户定案 B（2026-09-27）：该行没带图标时，取「该行时刻之前最近一次已知图标」（历史如实）
-        userIcon: imgProxy(content.userIcon || user.userIcon || user.iconUrl || content.iconUrl
-          || histIconAt(row.user_id, row.created_at) || ''),
-        // 2026-09-22 用户报障「为什么会有没头像的（某位非好友 非好友）」——实测：该用户 status 事件的载荷里
+        userIcon: imgProxy(content.userIcon || user.userIcon || user.iconUrl || ''),
+        // 2026-09-22 用户报障「为什么会有没头像的（散华ln 非好友）」——实测：该用户 status 事件的载荷里
         // `avatarImageUrl` **就是空串** ✗（WS 没带图），所以本块即使拼了 avatarUrl 也不会有图 ✓。
         // 正解：回退到「该 userId **最近一次带图的事件**」（数据就在 events 表里 ✓ 不需要发 API ✓），带进程内缓存 + 负缓存 ✓。
-        // 2026-09-22 用户报障「为什么会有没头像的（某位非好友 非好友，半天也不加载）」：
+        // 2026-09-22 用户报障「为什么会有没头像的（散华ln 非好友，半天也不加载）」：
         // 本块（profile 变更）**此前没有 avatarUrl** ✗，而前端 playerAvatarOf 优先读 avatarUrl ⇒ 非好友行头像空白 ✓。
         // 数据其实就在事件载荷里（status 事件自带 avatarImageUrl ✓）—— 不是「没加载」，是没被拼进去 ✓。
-        avatarUrl: avatarOf(content.userIcon || user.userIcon || user.iconUrl || histIconAt(row.user_id, row.created_at),
-            row.avatarUrl || content.avatarImageUrl || user.currentAvatarImageUrl)
+        avatarUrl: avatarOf(row.userIcon || user.userIcon, row.avatarUrl || content.avatarImageUrl || user.currentAvatarImageUrl)
           || lastKnownAvatarUrl(row.user_id),
         previousUserIcon: content.previousUserIcon || '',
         pronouns: content.pronouns || user.pronouns || '',
@@ -615,7 +590,7 @@ export function registerDashboardServices(loader, ctx) {
     // 从 avatarImageUrl 的 file ID 查 /file/{id}（file.name 形如 "Avatar - 模型名 - Image - ..."）。
     // 冷启动时不能阻塞 events 响应（限流器 2.6s/请求 + 路由器到 VRChat API 延迟大 → 首屏可等 1 分钟+）。
     // 策略：内存缓存 + planet_cache 落盘（重启不丢）；未命中的丢后台限流补，本次响应立即返回。
-    const parseAvName = parseAvatarName;   // 共享实现（core/img-util.js）
+    const parseAvName = (n) => { if (!n) return ''; const m = String(n).match(/^Avatar\s*-\s*(.+?)(\s*-\s*(Image|File|Texture|Thumbnail|VRChat)?.*)?$/i); return m ? m[1].trim() : String(n); };
     const anCache = loader._avatarNameCache || (loader._avatarNameCache = new Map());
     if (!loader._avatarNameCacheLoaded) {
       loader._avatarNameCacheLoaded = true;
@@ -625,17 +600,21 @@ export function registerDashboardServices(loader, ctx) {
           const fid = String(r.key).slice('avatar_name:'.length);
           try {
             const v = JSON.parse(r.payload);
-            // 2026-09-22：负缓存（解析不出来的 fileId）也要载入，否则每次翻页都会重试同一批 ✗
-            // —— 深层页全是老数据 ⇒ 每页重试 6 个不可解析的 fileId ⇒ 限流器被打爆（实测 40–105 秒等待/分钟）
+            // 负缓存也要载入，否则每次翻页都会重试同一批不可解析的 fileId ✗
             if (v && v.miss) { if (!v.until || v.until > Date.now()) anCache.set(fid, ''); }
-            else if (v && isPlausibleAvatarName(v.name)) anCache.set(fid, v.name);
-            else if (v && v.name) anCache.set(fid, '');   // 2026-09-27：历史脏值（blob/文件名）不载入
+            else if (v && v.name) anCache.set(fid, v.name);
           } catch { /* ignore */ }
         }
       } catch { /* 无表/查询失败则仅用内存缓存 */ }
     }
+    // 2026-09-22：补名**失败**时写负缓存（6 小时内不再重试同一 fileId）—— 深层页全是老数据，
+    // 其 fileId 多不可解析，若失败什么都不写就会每次翻页重试同一批 ⇒ 限流器被打爆（实测 40–105 秒等待/分钟）
+    const saveAvMiss = (fileId) => {
+      anCache.set(fileId, '');
+      try { ctx.storage.setPlanetCache(`avatar_name:${fileId}`, { name: '', miss: true, until: Date.now() + 6 * 3600 * 1000 }); } catch { /* 落盘失败不影响响应 */ }
+    };
     const saveAvName = (fileId, name) => {
-      const ok = isPlausibleAvatarName(name);
+      const ok = isPlausibleAvatarName(name);   // 2026-09-27：blob/文件名类脏值不入缓存
       anCache.set(fileId, ok ? name : '');
       try { ctx.storage.setPlanetCache(`avatar_name:${fileId}`, ok ? { name, at: Date.now() } : { name: '', miss: true, until: Date.now() + 6 * 3600 * 1000 }); } catch { /* 落盘失败不影响响应 */ }
     };
@@ -689,17 +668,12 @@ export function registerDashboardServices(loader, ctx) {
         { url: ev.avatarImageUrl, key: 'avatarName' },
         { url: ev.previousAvatarImageUrl, key: 'previousAvatarName' },
       ];
-      // 2026-09-25（用户报障「换模型全是未知模型」）：上游已移除 avatarImageUrl / currentAvatarImageUrl
-      // ⇒ ev.avatarImageUrl 实测近 2 天 392 条只有 13 条有值 ⇒ 下面 if (!j.url) continue 直接跳过
-      // ⇒ 补名循环一条都收不到 ⇒ 永远「未知模型」（而缓存里其实有 645 个真名，链是通的）。
-      // 兜底：用 userIcon（与用户 iconUrl 同源，一直有值）解 fileId 去补同一个 avatarName。
-      // 用户 2026-09-25 报障：VRCX Luo 能显示模型名，我们显示「未知模型」。
-      // 差别在于【它主动去取】——我们只等推送带 avatarImageUrl。载荷没带时：
-      // ① 优先回落到该好友【最近一次带图的事件】（那才是模型图，lastKnownAvatarUrl 现成）；
-      // ② userIcon 只是最后兜底 —— 它往往是用户头像图（非模型图），解出的 fileId 查不到模型名。
-      // #264（审查 nixi-agent 实测：载荷里 avatarImageUrl / avatarThumbnailUrl 常同为空串；跨事件回落命中 0/1693）：
-      //   只回落到【同一条事件】已有的缩略图字段；**绝不跨事件取「该好友最近一次带图的那条」** ——
-      //   那条对本事件而言是更早或更晚的模型，会把「未知模型」写成【确定但错误】的名（比留空更误导）。
+      // 载荷没带新模型图时，只回落到【同一条事件】里已有的模型图字段（avatarThumbnailUrl）——
+      // ⚠️ 绝不跨事件取「该好友最近一次带图的那条」（2026-09-25 审查 EMeowAGENT 实测指出）：
+      //    那条对本事件而言是【更早或更晚】的模型（lastKnownAvatarUrl = ORDER BY created_at DESC，
+      //    无「created_at < 本事件」下界）⇒ 会把「未知模型」写成「确定但错误」的名（实测渲染成「模型B → 模型B」），
+      //    比留空更误导；且它带 6h 正缓存，新图到达不失效 ⇒ 回落名最多滞后 6 小时。
+      // 另：仅在 avatarName 为空时回落，避免覆盖本已正确的名字（有名字但无图的推送）。
       if (!ev.avatarImageUrl && !ev.avatarName && ev.avatarThumbnailUrl) {
         jobs.push({ url: ev.avatarThumbnailUrl, key: 'avatarName' });
       }
@@ -710,11 +684,7 @@ export function registerDashboardServices(loader, ctx) {
         // 导致模型名全部显示"未知模型"）。avatarFileId 会先还原代理 URL 再提取 fileId。
         const fileId = avatarFileId(j.url);
         if (!fileId) continue;
-        if (anCache.has(fileId)) {   // 2026-09-27：写回前过滤 —— 缓存里可能仍有历史 blob 名
-          const cv = anCache.get(fileId);
-          ev[j.key] = isPlausibleAvatarName(cv) ? cv : '';
-          continue;
-        }
+        if (anCache.has(fileId)) { ev[j.key] = anCache.get(fileId); continue; }
         if (seen.has(fileId)) continue;
         seen.add(fileId);
         pending.push({ ev, fileId, key: j.key });
@@ -727,54 +697,14 @@ export function registerDashboardServices(loader, ctx) {
       (async () => {
         for (const { ev, fileId, key } of pending) {
           try {
-            // 2026-09-22：`GET /file/{id}` 对非自有文件**一律 404**（生产日志实证）⇒ 改为
-            // 走 `avimg:<fileId>` 映射拿 avatarId，再调**公开**的 `GET /avatars/{avatarId}` 取 name
-            // （上游 VRCX src/api/avatar.js 同款用法）。映射由 start-monitor 的全量好友列表建立。
-            let avatarId = '';
-            try {
-              const row = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key = $k`, { $k: `avimg:${fileId}` })[0];
-              if (row) { const v = JSON.parse(row.payload || '{}'); avatarId = v.avatarId || ''; }
-            } catch { /* 读缓存失败按无映射处理 */ }
-            // 2026-09-25（用户报障「VRCX Luo 依旧能抓到模型名，你抓不到」）：avimg:<fileId> 映射【从未建立过】
-            // —— 其建造方 start-monitor._syncFriendAvatars 的条件是 fid && f.currentAvatar，而 currentAvatar
-            //    已被上游从好友列表接口移除 ⇒ 恒假 ⇒ 这条补名通路整条是死的；追踪页恰好把结果直接写进
-            //    avatar_name:<fid> 缓存（665 条全来自那条路），把这里的空转掩盖了近一个月。
-            // 兜底：GET /users/{userId}（单用户接口仍返回 currentAvatar / currentAvatarImageUrl），
-            // 拿到后回写 avimg: 映射 —— 通路从此修好，下次解析同一 fileId 直接命中。
-            // ⚠️ 数据正确性：老事件里用户可能后来又换过模型 ⇒ 仅当【当前模型图的 fileId == 本事件
-            //    fileId】时才采信并回写，宁可维持未命中，也不把别的模型的名字安到这张图上。
-            // 2026-09-25 生产探针实测：GET /file/{fileId} 现在返回 200，且 file.name =
-            //   "Avatar - <模型名> - Image - …" ⇒ 直接就能拿名字，不必依赖 avimg:<fileId> 映射。
-            //   （2026-09-22 记的「非自有文件一律 404」已不成立；当时据此改走 /avatars/{avatarId}，
-            //    而上游随后移除了 currentAvatar ⇒ 映射再无来源、补名整条断掉 —— 这是本次的根因链。）
-            let nmDirect = '';
-            if (!avatarId) {
-              try {
-                const fr = await ctx.rateLimiter.execute(() => ctx.api._request('GET', '/file/' + encodeURIComponent(fileId)));
-                if (fr && fr.status === 200 && fr.data) nmDirect = parseAvName(fr.data.name) || '';
-              } catch { /* 仍拿不到就走既有负缓存（6h 后重试） */ }
-            }
-            const a = avatarId
-              ? await ctx.rateLimiter.execute(() => ctx.api._request('GET', `/avatars/${encodeURIComponent(avatarId)}`))
-              : null;
-            // 2026-09-27：parseAvatarName 对非 Avatar 命名会原样返回 ⇒ 必须过可信性判据（否则 file_xxx_blob 被当模型名）
-            const nmRaw = nmDirect || parseAvName(a && a.data && a.data.name);
+            const a = await ctx.rateLimiter.execute(() => ctx.api._request('GET', `/file/${fileId}`));
+            // 🔴 审查 EMeowAGENT 实测：本赋值发生在 DTO 出口过滤【之后】（异步 await 让出口循环先跑完），
+            //   故出口那层罩不住它 ⇒ 透出侧必须用同一判据过滤，否则 blob 名仍会作为模型名透出 ✓
+            const nmRaw = parseAvName(a && a.data && a.data.name);
             const nm = isPlausibleAvatarName(nmRaw) ? nmRaw : '';
-            if (nm) {
-              ev[key] = nm;
-              saveAvName(fileId, nm);
-              try { console.log(`[模型名] 已解析 ${fileId.slice(0,20)}… → ${nm}`); } catch { /* 日志失败忽略 */ }
-            } else {
-              // 2026-09-22：解析不出（无 avimg 映射 / API 无 name）⇒ 写**负缓存**（6 小时后才重试）✓
-              // 否则每次翻页都会为同一批老事件重复打 VRChat，把限流器顶满 ✗（用户实测「越往下越慢」）
-              try {
-                anCache.set(fileId, '');
-                ctx.storage.setPlanetCache(`avatar_name:${fileId}`, { name: '', miss: true, until: Date.now() + 6 * 3600 * 1000 });
-              } catch { /* 落盘失败不影响 */ }
-            }
-          } catch { /* 查询失败：同样记负缓存，避免每页重试 ✗ */
-            try { anCache.set(fileId, ''); ctx.storage.setPlanetCache(`avatar_name:${fileId}`, { name: '', miss: true, until: Date.now() + 6 * 3600 * 1000 }); } catch { /* ignore */ }
-          }
+            if (nm) { ev[key] = nm; saveAvName(fileId, nm); try { log.debug(`[模型名] 已解析 ${fileId.slice(0,20)}… → ${nm}`); } catch { /* 日志失败忽略 */ } }
+            else { log.info(`[模型名] 解析不出，落负缓存 6h：${fileId.slice(0,20)}…`); saveAvMiss(fileId); }   // 降级决策必须留痕 ✓
+          } catch (e) { log.warn('[模型名] 解析失败（保留空名，下次再试）：' + (e && e.message ? e.message : e)); }
         }
       })();
     }
@@ -790,6 +720,18 @@ export function registerDashboardServices(loader, ctx) {
       const trow = ctx.storage.query(`SELECT COUNT(*) AS c FROM events ${tw}`, tp);
       total = trow[0] ? trow[0].c : 0;
     } catch { total = 0; }
+    // 💡1（审查 EMeowAGENT）：本出口只回填 userIcon；avatarUrl 仍走「好友当前值」⇒ 同一行两字段可能指向不同图。
+    //   前端左侧圆头像取 userIcon 优先，故显示正确；此处按现状保留（要彻底统一需另开 PR 把 avatarUrl 纳入同口径）。
+    // 2026-09-27（用户定案）：左侧圆头像一律取「该行当时」的图 —— 出口统一回填；
+    //   并把不可信的模型名（blob / 文件名类脏值）一并清掉。统一放出口，避免改动散落影响无关上下文。
+    for (const ev of result) {
+      if (!ev.userIcon) {
+        const hist = histIconAt(ev.userId, ev.createdAt);
+        if (hist) ev.userIcon = imgProxy(hist);
+      }
+      if (ev.avatarName && !isPlausibleAvatarName(ev.avatarName)) ev.avatarName = '';
+      if (ev.previousAvatarName && !isPlausibleAvatarName(ev.previousAvatarName)) ev.previousAvatarName = '';
+    }
     return { events: result, total };
   });
   loader.serviceOwners.set('dashboard.events', 'core');
@@ -1000,13 +942,11 @@ export function registerDashboardServices(loader, ctx) {
     try {
       const rows = ctx.storage.query(
         `SELECT t.user_id AS userId, t.display_name AS displayName, t.avatar_image_url AS avatarUrl,
-                t.status, t.status_description AS statusDescription, t.location, t.memo,
+                t.status, t.status_description AS statusDescription, t.location, t.memo, t.trust_level AS trustLevel,   -- 2026-09-22：SELECT 是显式清单 ⇒ 新列必须显式加 ✗
                 t.added_at AS addedAt, t.last_refresh_at AS lastRefreshAt,
                 (SELECT e.created_at FROM events e
                   WHERE e.user_id = t.user_id AND e.type = 'friend-update' AND e.source = 'poll'
-                  ORDER BY e.id DESC LIMIT 1) AS lastChangeAt,
-                  -- 2026-09-22 新增三列（不加别名 ⇒ DTO 用 r.last_activity / r.platform / r.world_id 映射为驼峰 ✓）
-                  t.last_activity, t.platform, t.world_id, t.trust_level
+                  ORDER BY e.id DESC LIMIT 1) AS lastChangeAt
          FROM tracked_non_friends t
          -- 权威源兜底(#164 补漏):列表只含"当前非好友"。friend-add 联动写 removed_at 是事件驱动,
          -- 事件丢失(停机/断连窗口内加好友)会残留;LEFT JOIN friends 排除,若日后解除好友自动回列。
@@ -1016,30 +956,7 @@ export function registerDashboardServices(loader, ctx) {
         { $limit: Math.min(Math.max(Number(limit) || 200, 1), 500) });
       const selfId = getSelfUserId(ctx.storage);
       // 2026-09-22 用户报障「非好友追踪页全是大写首字母」：追踪表的 avatarUrl 常常是空的 ⇒ 回退到该用户最近一次带图的事件 ✓
-      // 2026-09-22：追踪行补 worldName（world_id → world_cache.name ✓）；实测 /users/{id} 对非好友会给 worldId ✓
-      // 2026-09-22：非好友的**当前模型名**——iconUrl 的 fileId 已在刷新时解析进 planet_cache（avatar_name:<fid> ✓）
-      // 此处按行的 avatarUrl 反查缓存即可 ✓（与补名链路同一张表 ✓，不重复打接口 ✓）
-      const avatarNameOf = (url) => {
-        try {
-          const fid = avatarFileId(url);
-          if (!fid) return '';
-          const row = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key = $k`, { $k: `avatar_name:${fid}` })[0];
-          if (!row) return '';
-          const v = JSON.parse(row.payload || '{}');
-          if (v.until && v.until <= Date.now()) return '';
-          return v.name || '';
-        } catch { return ''; }
-      };
-      const worldNameOf = (wid) => {
-        if (!wid || wid === 'private' || wid === 'offline' || wid.startsWith('offline')) return '';
-        try { const w = ctx.storage.query(`SELECT name FROM world_cache WHERE world_id = $w`, { $w: wid })[0]; return (w && w.name) || ''; } catch { return ''; }
-      };
-      return { tracked: rows.filter((r) => r.userId !== selfId).map((r) => ({ ...r, avatarUrl: avatarThumb(r.avatarUrl) || lastKnownAvatarUrl(r.userId) || '',
-        // 2026-09-22：新列以**驼峰**暴露给前端（前端统一用 camelCase ✓；此前 { ...r } 透传的是下划线式 ✗）
-        lastActivity: r.last_activity || '', platform: r.platform || '', worldId: r.world_id || '',
-        trustLevel: r.trust_level || '',   // 2026-09-22：非好友信任等级（来自 tags ✓）
-        avatarName: avatarNameOf(r.avatarUrl),   // 2026-09-22：当前模型名（iconUrl → /file 解析 + 缓存 ✓）
-        worldName: worldNameOf(r.world_id) })) };
+      return { tracked: rows.filter((r) => r.userId !== selfId).map((r) => ({ ...r, trustLevel: r.trustLevel || '', avatarUrl: avatarThumb(r.avatarUrl) || lastKnownAvatarUrl(r.userId) || '' })) };
     } catch {
       return { tracked: [] };
     }
@@ -1573,10 +1490,9 @@ export function registerDashboardServices(loader, ctx) {
     // 模型名（currentAvatarImageUrl → file id → planet_cache avatar_name）
     let avatarName = '';
     try {
-      // 2026-09-22 issue #225：此处兜底取的正是 currentAvatarThumbnailImageUrl（image 形态 ✗）⇒ 好友详情页模型名一直为空 ✓；收敛到 avatarFileId() ✓
-      // 2026-09-22：非好友这两个字段都不存在 ✗，而 iconUrl 有值 ✓ ⇒ 补进链尾，弹窗模型名即可显示 ✓
-      const fid = avatarFileId(user && (user.currentAvatarImageUrl || user.currentAvatarThumbnailImageUrl || user.iconUrl) || '');
-      if (fid) {   // 2026-09-22：原为 if (fm) ✗ —— 非好友没有 avimg: 映射 ⇒ 整个查询被跳过 ⇒ 模型名恒空 ✓
+      // 2026-09-22 评审纠正：本处原来漏改（仍是旧正则 ✗）且条件里用了未绑定的 fid ✗ ⇒ ReferenceError 被 catch 吞掉 ⇒ 模型名恒空
+      const fid = avatarFileId(user && (user.currentAvatarImageUrl || user.currentAvatarThumbnailImageUrl || user.iconUrl) || '') || '';
+      if (fid) {   // 2026-09-22 #225：原为 if (fm) ✗ —— 非好友/无 avimg 映射时整段被跳过 ⇒ 好友详情模型名恒空 ✓
         const anCache = loader._avatarNameCache || (loader._avatarNameCache = new Map());
         if (fid && anCache.has(fid)) avatarName = anCache.get(fid);
         else {
