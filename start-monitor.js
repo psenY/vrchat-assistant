@@ -10,12 +10,12 @@ import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import net from 'node:net';
-import { refreshFriendList, trustFromTags } from './core/friend-refresh.js';   // trustFromTags：非好友信任等级（tags → 名称，与好友页同一映射 ✓）
 
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
 import { isWebPresence } from './core/event-pipeline.js';
-import { avatarFileId, parseAvatarName } from './core/img-util.js';   // parseAvatarName：模型文件名 → 模型名（与补名链路同一实现 ✓）
-import { pickOfflineWindowStart } from './core/offline-window.js';
+import { readOnlineCountIncludeWeb, isOnlineForCount } from './core/online-count-policy.js';
+import { refreshFriendList } from './core/friend-refresh.js';
+import { avatarFileId, parseAvatarName } from './core/img-util.js';   // 2026-09-22 #225：fileId 提取统一走它（支持 /image/ 形态 + 代理 URL 还原）；#233 由 parseAvatarName 解析模型名
 import { initLogger, getLevelName, getLogger } from './core/logger.js';
 import { recordOpsLog, setOpsLogSink } from './core/ops-log.js';
 import * as registry from './core/registry.js';
@@ -51,6 +51,7 @@ import { parseTotpSecret, generateTotp } from './core/totp.js';
 import { notifier } from './core/notifier.js';
 import { buildChannels } from './core/notify-channels.js';
 import { decideTrackedFail } from './core/tracked-fail-policy.js';
+import { pickOfflineWindowStart } from './core/offline-window.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -94,17 +95,6 @@ Object.assign(ctx.paths, { __dirname, PORT, HOST, COOKIE_FILE, CRED_FILE, DB_PAT
 // LOG_DIR/LOG_LEVEL/LOG_FORMAT 由 logger 自行从 env 解析，这里只在 main() 初始化后回填可读值
 // 见 main() 顶部 initLogger() 逻辑
 
-// 网页在线是否计入「在线好友数」（2026-09-15 用户要求开关；默认计入，0=只算游戏内）。
-// 只影响 friendState 计数（状态文案 {online} / MCP get_online_friends）；
-// 好友列表的「网页在线」分组展示不受影响。
-const ONLINE_INCLUDE_WEB = Number(process.env.VRC_MONITOR_ONLINE_INCLUDE_WEB) !== 0;
-
-// 最近一次「对账确认某好友在在线集合中」的时刻（userId → ISO）。
-// 用途：对账补记离线时给出更紧的窗口下界——此前的实现用「最近一次 WS 断开时刻」，
-// 一次 2 秒瞬断会被放大成数小时的窗口（2026-09-21 实测：03:15 瞬断 → 07:50 检出离线，
-// 显示成「API 掉线期间离线（03:15 ~ 07:50）」4.5 小时，被用户误读成服务掉线 4.5 小时）。
-const lastOnlineAt = new Map();
-
 // ── WebSocket 事件 → 好友状态更新 ──
 async function _updateFriendState(event) {
   const { friendState } = ctx;
@@ -127,12 +117,23 @@ async function _updateFriendState(event) {
       });
       break;
     case 'friend-active':
-      if (ONLINE_INCLUDE_WEB || !isWebPresence(event.platform)) friendState.setOnline(event.userId);
+      friendState.setOnline(event.userId);
       break;
   }
 }
 
 // ── WebSocket 重连后刷新全量在线状态 ──
+// 每个好友「最近一次对账确认他在在线集合里」的时刻。
+// ⚠️ 必须模块级、跨轮保留：对账要处理的 stale 行必然【不在本轮】在线集合里（在即 continue），
+//    所以只有跨轮保留的值才能作为 pickOfflineWindowStart 的 lastOnlineSeen 候选真正生效
+//    （此前它是每次调用新建的局部 Map，那个候选恒为 undefined —— review 指出）。
+const lastOnlineAt = new Map();
+// 网页/移动端在线是否计入「在线好友数」（默认计入；VRC_MONITOR_ONLINE_INCLUDE_WEB=0 只算游戏内）
+// ⚠️ 不用模块级常量：与仓库其它开关一致，调用时读取（运行期改 env 能生效）
+
+// 对账定时器：模块级（不用 globalThis —— 那是临时/取巧的写法，且会污染全局）
+let onlineReconcileTimer = null;
+
 async function _refreshOnlineState() {
   const { api, friendState, storage } = ctx;
   try {
@@ -154,12 +155,9 @@ async function _refreshOnlineState() {
       displayName: f.displayName,
       location: f.location || '',
       worldId: f.worldId || (f.location || '').split(':')[0],
-      // 在线口径（2026-09-15 修正）：有有效 location（游戏内）**或网页端在线**（platform=web，
-      // location='offline'）都计在线——好友列表的「网页端在线自愈」本就标 is_online=1、
-      // UI 的 isWebOnline 也依赖 isOnline=true，若这里只算游戏内，状态文案数字与好友列表
-      // 总数会分叉（用户报障：在线 N 人 vs 实际）。issue #114 排除的是**无位置的 active/
-      // 菜单中用户**（location 为空、非 web），仍然排除 ✓
-      isOnline: !!(f.location && f.location !== 'offline') || (ONLINE_INCLUDE_WEB && isWebPresence(f.platform)),
+      // 在线口径与 MCP get_online_friends 一致：仅「有有效 location」计在线（offline=false 返回含
+      // active/菜单中用户，location 为空者不算在线——issue #114 ⚠️2 复测遗留修复）
+      isOnline: isOnlineForCount(f, readOnlineCountIncludeWeb()),
     })));
     // 网页端在线自愈（2026-09-10 用户报 bug：转网页在线后 friends 表残留最后进房世界）。
     // REST 在线列表里 location='offline' 的条目=仅网页在线（VRChat 语义），把 platform/location
@@ -175,23 +173,20 @@ async function _refreshOnlineState() {
     // 断线窗口对账：WS 断开期间的好友下线事件会错过（下线不再广播），本地状态会卡在「在线」。
     // 好友表标记在线、但不在真实在线集合中的 → 置离线 + 补记 friend-offline 事件（动态流可见）。
     // 准确下线时刻在断线窗口内无法得知，记对账时刻。
+    // lastOnlineAt 是模块级、跨轮保留的（见文件上方）——本轮只负责写入"此刻他在在线集合里"
     const onlineIds = new Set(online.map(f => f.id));
-    const nowIso = new Date().toISOString();
-    // 本次对账确认在线的好友 → 记住时刻，供后续补离线时做窗口下界
-    for (const f of online) lastOnlineAt.set(f.id, nowIso);
     const stale = storage.query(`SELECT user_id, display_name, last_seen FROM friends WHERE is_online = 1`);
-    // 断线窗口起点：取「最后一次能证明他在线」的时刻——三者取最大：
-    //   ①row.last_seen（他最后一次活动/事件）②lastOnlineAt（最近一次对账确认在线，通常 ≤5 分钟）
-    //   ③disconnectedAt（最近一次 WS 断开，仅在它确实更晚时才用）。
-    // 语义：窗口表示「他在这之后的某个时刻下线了」，而不是「服务掉了这么久」。
+    const nowIso = new Date().toISOString();
+    for (const f of online) lastOnlineAt.set(f.id, nowIso);
+    // API 掉线窗口起点 = WS 最近一次断开时刻（重连对账的「期间」语义）
     const disconnectedAt = ctx.wsManager && ctx.wsManager.disconnectedAt
       ? new Date(ctx.wsManager.disconnectedAt).toISOString() : '';
     let fixed = 0;
     for (const row of stale) {
       if (onlineIds.has(row.user_id)) continue;
-      // 窗口下界：最后一次能证明他在线的时刻（纯函数，见 core/offline-window.js 的语义说明）
+      // 窗口下界 = 最后一次能证明他在线的时刻（三者取最大；纯函数见 core/offline-window.js）
       const anchorIso = pickOfflineWindowStart({
-        lastSeen: row.last_seen,
+        lastSeen: row.last_seen || '',
         lastOnlineSeen: lastOnlineAt.get(row.user_id),
         disconnectedAt,
       });
@@ -219,7 +214,7 @@ async function _refreshOnlineState() {
           contentJson: {
             userId: row.user_id, location: 'offline',
             reconcile: true,
-            offlineWindowStart: anchorIso,        // 最后一次确认他在线的时刻（窗口下界）
+            offlineWindowStart: anchorIso || disconnectedAt,   // 最后一次确认他在线的时刻（窗口下界）
             detectedAt: nowIso,                    // 对账确认离线时刻
             lastSeen: row.last_seen || '',         // 好友最后活动时刻（更紧的下界）
           },
@@ -262,13 +257,11 @@ async function _syncFriendAvatars() {
       for (const f of r.data) {
         // 模型 ID ↔ 图片映射：VRChat WS 推送的 friend-update 不含 currentAvatar（只有图片 URL），
         // 这里用全量好友列表建 imageUrl→avatarId 映射，供 events 服务富化模型变动事件的 avtr ID
-        // 用共享的 avatarFileId（支持 /file/ 与 /image/ 两种形态 + 解代理 URL）；
-        // 旧内联正则只认 /file/，image 形态永远建不了映射（生产实测 avimg: 条目数 0）。
-        const fid = avatarFileId(f.currentAvatarImageUrl || '');
-        // 2026-09-22 探针实证：好友列表**不再返回 `currentAvatar`**（只有 currentAvatarImageUrl），
-        // 故此处改为记录 fileId→（无 id 时的）占位，保留原逻辑以便上游恢复该字段后自动生效。
-        if (fid && f.currentAvatar) {
-          try { storage.setPlanetCache(`avimg:${fid}`, { avatarId: f.currentAvatar, at: Date.now() }); } catch { /* 落盘失败忽略 */ }
+        // 2026-09-22 #225：收敛到 avatarFileId()（原内联正则只认 /file/ ✗ ⇒ image 形态被静默跳过）
+        // 2026-09-22 评审纠正：avatarFileId() 返回字符串 ✗（原来按 match 数组取 fm[1] ⇒ 键退化成 avimg:i，所有好友挤一个键、后写覆盖）
+        const fm = avatarFileId(f.currentAvatarImageUrl) || '';
+        if (fm && f.currentAvatar) {
+          try { storage.setPlanetCache(`avimg:${fm}`, { avatarId: f.currentAvatar, at: Date.now() }); } catch { /* 落盘失败忽略 */ }
         }
         // VRChat API User 对象：头像字段 currentAvatarImageUrl/currentAvatarThumbnailImageUrl/userIcon，信任等级 trustLevel
         const av = f.currentAvatarImageUrl || f.currentAvatarThumbnailImageUrl || '';
@@ -355,8 +348,8 @@ async function _refreshTrackedNonFriends() {
     try {
       const r = await rateLimiter.execute(() => api._request('GET', `/users/${encodeURIComponent(u.user_id)}`));
       if (r.status !== 200 || !r.data || r.data.error) {
-        // 2026-09-23 issue #241（评审二轮 ⚠️2）：判定抽到 core/tracked-fail-policy.js 的纯函数
-        // 只把「明确 404」当永久失效；429/5xx 等暂时性故障不累计，避免误杀有效条目（且不会自愈）
+        // 2026-09-23 issue #241（评审 ⚠️2 修正）：判定抽到 core/tracked-fail-policy.js 的纯函数 ✓
+        // 只把「明确 404」当永久失效 —— 429/5xx 等暂时性故障不累计，避免误杀有效条目（且不会自愈）✗
         const d = decideTrackedFail({ failCount: u.fail_count, status: r.status, hasDataError: !!(r.data && r.data.error) });
         try {
           if (d.remove) {
@@ -369,43 +362,52 @@ async function _refreshTrackedNonFriends() {
         } catch { /* 标记失败不影响刷新 */ }
         continue;
       }
+      // 成功 => 清零（曾有失败但恢复的条目）
       if (u.fail_count) { try { storage.run(`UPDATE tracked_non_friends SET fail_count = 0 WHERE user_id = $u`, { $u: u.user_id }); } catch { /* 忽略 */ } }
       const userObj = r.data;
-      // 2026-09-22：非好友连 currentAvatarImageUrl/Thumbnail/userIcon **三个键都不存在** ✗（实测原始返回无此三键），
-      // 而 VRChat 会给 iconUrl（活数据 ✓）⇒ 补进兜底链，避免 av 恒为空 ✓
-      const av = userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl || userObj.userIcon || userObj.iconUrl || '';
+      const av = userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl || userObj.userIcon || '';
       const dn = userObj.displayName || u.display_name || '';
-      // 2026-09-22：非好友也能拿信任等级——实测 /users/{id} 的 tags 有值 ✓（VRCX 同款 computeTrustLevel 口径 ✓）
-      // 2026-09-22：非好友的**当前模型名**也能拿 ✓（实测：iconUrl 的 fileId → GET /file/{id} → name = 'Avatar - 模型名 - Image - …' ✓）
-      // 与补名链路同一套缓存（avatar_name:<fid> ✓ 含负缓存 ✓），解析不到就留空、不覆盖旧值 ✓
-      const parseAvName = parseAvatarName;   // 与 dashboard-services 同款别名 ✓
+      // 2026-09-22：非好友也能拿信任等级（/users/{id} 的 tags 有值 ⇒ 与好友页同一套映射）
+      // 2026-09-22 评审 🔴：原先顶层 import 了 core/friend-refresh.js —— 该模块只由**仍 open 的 #222** 引入 ✗
+      // ⇒ 若本 PR 先合并，node start-monitor.js 会在加载阶段 ERR_MODULE_NOT_FOUND 直接崩 ✗
+      // ⇒ 改用**本文件既有**的 inferTrustFromTags()（main 上就有 ✓，映射与 VRCX computeTrustLevel 对齐 ✓）
+      const tl = (() => { try { return inferTrustFromTags(Array.isArray(userObj.tags) ? userObj.tags : []) || ''; } catch { return ''; } })();
+      // 2026-09-22：非好友的**当前模型名**也能拿 ✓（实测：iconUrl 的 fileId → GET /file/{id} → name = 「Avatar - 模型名 - Image - …」✓）
+      // 与事件补名共用同一张缓存 planet_cache 的 avatar_name:<fid> ✓；解析不到就留空、不覆盖旧值 ✓
+      // ⚠️ 失败时也写一条 miss（6 小时 TTL）—— 否则每次刷新都会重试同一批不可解析的 fileId ✗
+      const parseAvName = parseAvatarName;
       let avatarName = '';
       try {
         const fid = avatarFileId(userObj.iconUrl || '');
         if (fid) {
-          const cached = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key = $k`, { $k: `avatar_name:${fid}` })[0];
+          const cached = ctx.storage.query('SELECT payload FROM planet_cache WHERE key = $k', { $k: 'avatar_name:' + fid })[0];
           let hit = null;
           if (cached) { try { hit = JSON.parse(cached.payload); } catch { /* 忽略 */ } }
           if (hit && typeof hit.until === 'number' && hit.until <= Date.now()) hit = null;
           if (hit) avatarName = hit.name || '';
           else {
             const fr = await rateLimiter.execute(() => api._request('GET', '/file/' + encodeURIComponent(fid)));
-            // 2026-09-22：实测 iconUrl 有时是「用户头像/相机图」而非模型图 ✗ ⇒ 文件名形如 file_xxx_camera_user_icon / file_xxx_image
-            // 这类名字**不是模型名**，必须过滤 ✓（真模型名解析后是纯名字，如「测试」✓）
-            const raw = String(parseAvName(fr && fr.data && fr.data.name) || '');
-            avatarName = /^file_[0-9a-f-]{20,}/i.test(raw) ? '' : raw;
-            try { ctx.storage.setPlanetCache(`avatar_name:${fid}`, avatarName ? { name: avatarName, at: Date.now() } : { name: '', miss: true, until: Date.now() + 6 * 3600 * 1000 }); } catch { /* 忽略 */ }
-            if (avatarName) { try { log(`[模型名] 追踪解析 ${fid.slice(0, 16)}… → ${avatarName}`); } catch { /* 忽略 */ } }
+            // 实测 iconUrl 有时是「用户头像/相机图」而非模型图 ✗ ⇒ 文件名形如 file_xxx_camera_user_icon
+            // 这类**不是模型名**，必须过滤 ✓（真模型名解析后是纯名字，如「测试」✓）
+            // 2026-09-22 评审 ⚠️2：只挡 file_ 前缀是不够的 —— iconUrl 也可能指向资料头像/相机图，
+            // 文件名可为任意值（实测 selfie.png / My cute avatar / IMG_20240101_123456.jpg 都会被原过滤当模型名）
+            // ⇒ 改为只采信 VRChat 模型文件的命名形态「Avatar - <名> - Image …」
+            const rawName = String((fr && fr.data && fr.data.name) || '');
+            const parsed = String(parseAvName(rawName) || '');
+            avatarName = /^Avatar\s*-\s*/i.test(rawName) ? parsed : '';
+            try {
+              ctx.storage.setPlanetCache('avatar_name:' + fid, avatarName
+                ? { name: avatarName, at: Date.now() }
+                : { name: '', miss: true, until: Date.now() + 6 * 3600 * 1000 });
+            } catch { /* 落盘失败不影响刷新 */ }
+            if (avatarName) { try { log('[模型名] 追踪解析 ' + fid.slice(0, 16) + '… → ' + avatarName); } catch { /* 忽略 */ } }
           }
         }
-      } catch { /* 解析失败留空，下次再试 ✓ */ }
-      const tl = (() => { try { return trustFromTags(Array.isArray(userObj.tags) ? userObj.tags : []) || ''; } catch { return ''; } })();
+      } catch { /* 解析失败留空，下次再试 */ }
       // 头像变化检测：按 file id 归一化比较（防 currentAvatarImageUrl vs Thumbnail 兜底链或 URL 版本号 /1/ vs /3/ 波动误报）
       const prevAv = u.avatar_image_url || '';
-      // 2026-09-22 issue #225（评审提级 ⚠️）：本函数是**变更检测归一化** —— 旧正则对 image 形态两侧都返回 '' ✗
-      // ⇒ changed 退化成原始字符串比较 ⇒ 仅版本号抖动（/1/256 → /3/256）就被误判为「换了模型」，产生**假 avatar 事件** ✓。
-      // 收敛到 avatarFileId() 后两侧都归一为 file_xxx ⇒ changed 正确 ✓（它返回 null，用 ?? '' 适配本函数约定 ✓）。
-      const fileIdOf = (url) => avatarFileId(url) ?? '';
+      // 2026-09-22 #225：同上，统一用 avatarFileId()（它会先还原代理 URL ✓ 且支持 /image/ 形态 ✓）
+      const fileIdOf = (url) => avatarFileId(url) || '';
       const changed = fileIdOf(av) && fileIdOf(prevAv) ? fileIdOf(av) !== fileIdOf(prevAv) : (av !== prevAv);
       if (av && prevAv && changed) {
         try {
@@ -421,22 +423,10 @@ async function _refreshTrackedNonFriends() {
       const stDesc = userObj.statusDescription || '';
       const loc = userObj.location || '';
       if (av || dn || st || loc) {
-        try {
-
-          storage.run(
-            `UPDATE tracked_non_friends SET avatar_image_url=$a, display_name=$d, status=$s, status_description=$sd, location=$l, last_activity=$la, platform=$p, world_id=$w, trust_level=$tl, last_refresh_at=datetime('now') WHERE user_id=$u`,
-            // 2026-09-22：av 为空时**不覆盖**已有头像（非好友 av 常空 ⇒ 否则抹掉历史头像 ✗ 已实测发生）
-            { $a: av || (u.avatar_image_url || ''), $d: dn, $s: st, $sd: stDesc, $l: loc,
-            // 2026-09-22：信任等级（空则不覆盖旧值 ✓ 同头像规则）
-            $tl: tl || (u.trust_level || ''),
-              // 2026-09-22 新增：用户实测确认这些字段对非好友也返回 ✓（探针打印字段名验证 ✓）
-              $la: String(userObj.last_activity || ''),
-              // 2026-09-22 实测：离线时 userObj.platform 是字符串 'offline' ✗（不是空 ✗）⇒ 会挡住兜底；
-              // 故先剔除 'offline'，再用 last_platform（实测有值：standalonewindows ✓）
-              $p: String((userObj.platform && userObj.platform !== 'offline' ? userObj.platform : '') || userObj.last_platform || ''),
-              $w: String(userObj.worldId || ''), $u: u.user_id }
-          );
-        } catch (e) { log(`[追踪] 写入失败（留痕）：${e.message}`); }   // 2026-09-22 新增留痕：此前静默 ✗
+        storage.run(
+          `UPDATE tracked_non_friends SET avatar_image_url=$a, display_name=$d, status=$s, status_description=$sd, location=$l, trust_level=$tl, last_refresh_at=datetime('now') WHERE user_id=$u`,
+          { $a: av, $d: dn, $s: st, $sd: stDesc, $l: loc, $tl: tl || (u.trust_level || ''), $u: u.user_id }
+        );
       }
       // location/上下线变化检测（#146）：轮询 1h 低频，offline/offline:offline/traveling 离线态微动与转场不记录
       const locPrev = u.location || '';
@@ -912,9 +902,7 @@ setOpsLogSink((kind, level, message) => {
   // （权威实现 yixijun/VRCX-Luo；生产正反样本各 4 例实测）—— 命中缓存零成本，未命中过一次限流器
   // 💡（审查 nixi-agent）：聚合留痕桶在进程退出时会丢 ⇒ 存到 ctx 并在
   //   SIGINT/SIGTERM/beforeExit 里 flush（与 rateLimiter.flushSlowWaitAgg 同款）✓
-  ctx.imageKindResolver = createImageKindResolver({
-    storage: ctx.storage, api: ctx.api, rateLimiter: ctx.rateLimiter,
-  });
+  ctx.imageKindResolver = createImageKindResolver({ storage: ctx.storage, api: ctx.api, rateLimiter: ctx.rateLimiter });
   ctx.eventPipeline.setImageKindResolver(ctx.imageKindResolver);
 
   // 5.4 动态状态引擎（按在线好友数量自动更新自定义状态；默认关闭,MCP set_dynamic_status 控制）
@@ -961,7 +949,9 @@ setOpsLogSink((kind, level, message) => {
       log(`[连接] WebSocket: ${status}`);
       if (status === 'connected') {
         // 连接后延迟对账：先让重连突发的实时推送（上线/下线）落地，再对账补漏，避免双记
+        // 首轮延迟（等重连突发的实时推送落地）+ 之后每 5 分钟一次（WS 连接间隙错过的事件靠它补）
         setTimeout(() => { _refreshOnlineState().catch(() => {}); }, 25_000);
+        if (!onlineReconcileTimer) onlineReconcileTimer = setInterval(() => { _refreshOnlineState().catch(() => {}); }, 5 * 60_000);
         // WS 重连成功但启动登录可能失败(如 OTP 错位)，此处复查认证并同步 authUser
         ctx.api.checkAuth().then((res) => {
           if (res.valid) {
@@ -990,18 +980,22 @@ setOpsLogSink((kind, level, message) => {
   // 7a. 好友头像补全：启动 90s 后首次 + 每 6 小时（低频，只补空头像）
   setTimeout(_syncFriendAvatars, 90 * 1000);
   setInterval(_syncFriendAvatars, 6 * 3600 * 1000);
-  // 在线对账周期化（2026-09-15 用户报障：状态文案在线数 vs 好友列表分叉）——
-  // _refreshOnlineState 原本只在 WS 连接后 setTimeout(25s) 跑一次：连接间隙错过的事件
-  // 会让 friendState（状态文案读数）与 friends.is_online（好友列表读数）各自漂移。
-  // 每 5 分钟从 API 对账一次，两边自然收敛（函数内部已有去重与失败放弃保护）。
-  setInterval(() => { _refreshOnlineState().catch(() => {}); }, 5 * 60 * 1000);
-  // 好友列表周期刷新（2026-09-15 用户报障根治）：服务纯 WS 驱动、无好友列表拉取 →
-  // trust_level 等资料字段陈旧无自愈。首轮启动 60s 后跑一次（部署后用户可立即看到等级
-  // 刷新），之后每 VRC_MONITOR_FRIEND_REFRESH_HOURS（默认 6）小时一次；刷新时回写
-  // 非空资料字段 + 记录 trust_level 变化事件（见 core/friend-refresh.js）。
+
+  // 好友资料权威刷新（issue：trust_level 陈旧无自愈；#222 审核 🔴1 指出本接线缺失 → 补上）：
+  // 启动 60 秒后跑首轮（部署即自愈存量陈旧等级），之后每 VRC_MONITOR_FRIEND_REFRESH_HOURS（默认 6）小时一次；
+  // 刷新时回写非空资料字段 + 记录 trust_level 变化事件；每周期上限 VRC_MONITOR_FRIEND_REFRESH_MAX（默认 50）。
   const FRIEND_REFRESH_HOURS = Math.max(1, Number(process.env.VRC_MONITOR_FRIEND_REFRESH_HOURS) || 6);
-  setTimeout(() => { refreshFriendList(ctx, log).catch(() => {}); }, 60_000);
-  setInterval(() => { refreshFriendList(ctx, log).catch(() => {}); }, FRIEND_REFRESH_HOURS * 3600 * 1000);
+  const runFriendRefresh = () => {
+    // #222 审核 💡2：未认证时跳过（否则每周期 50 次 401 + 逐个触发自动重认证 ✗）；
+    // 且异常必须记一行（原来的 .catch(() => {}) 会静默吞掉模块级异常 ✗）。
+    if (!ctx.serverState || !ctx.serverState.authUser) {
+      log('[追踪] 好友资料刷新跳过：尚未认证（避免未登录时打 401）');
+      return;
+    }
+    refreshFriendList(ctx, log).catch((e) => log('[警告] 好友资料刷新异常: ' + e.message));
+  };
+  setTimeout(runFriendRefresh, 60_000);
+  setInterval(runFriendRefresh, FRIEND_REFRESH_HOURS * 3600 * 1000);
 
   // 7a2. 追踪非好友（VRCX-Luo 对齐）：启动 20s 后自动导入历史非好友并首次拉取，之后每小时刷新
   setTimeout(async () => {

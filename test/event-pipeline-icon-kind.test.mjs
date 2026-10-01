@@ -199,8 +199,6 @@ test('💡（审查 nixi-agent）flush 必须把聚合桶排空 —— 钉住 fl
   const after = resolve.stats();
   assert.deepEqual(after, { negHit: 0, unknown: 0, fail: 0 }, 'flush 之后桶必须排空（否则退出时仍会丢日志）');
 });
-
-
 test('🔴 文件同一性必须压过 tags：同一文件既是载荷里的 currentAvatarImageUrl 又是 iconUrl ⇒ 只出 1 条模型变动、不出「更新了头像图标」', async () => {
   clear();
   // 生产实证（2026-09-27 23:05 北京时间，某位好友 event id 18104/18105 同一毫秒）：

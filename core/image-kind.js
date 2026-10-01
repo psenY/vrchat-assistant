@@ -25,7 +25,7 @@ export function createImageKindResolver({ storage, api, rateLimiter, positiveTtl
     if (!n) return;
     if (!force && n < 50 && Date.now() - lastFlush < 10 * 60e3) return;
     const msg = '降级聚合：负缓存命中 ' + stat.negHit + ' · 判不出 ' + stat.unknown + ' · 请求失败 ' + stat.fail + '（窗口 ' + Math.round((Date.now() - lastFlush) / 1000) + 's）';
-    if (stat.fail) log.warn(msg); else log.info(msg);   // 失败→WARN，其余降级→INFO（本仓分级约定）
+    if (stat.fail) log.warn(msg); else log.info(msg);
     stat.negHit = 0; stat.unknown = 0; stat.fail = 0; lastFlush = Date.now();
   };
   const mem = new Map();   // fileId -> { kind, name, until }
@@ -85,6 +85,5 @@ export function createImageKindResolver({ storage, api, rateLimiter, positiveTtl
   resolveImageKind.flush = () => flushStat(true);   // 优雅退出/单测用 ✓
   // 💡（审查 nixi-agent）："flush 是否真的把桶排空"要在用例里可断言（只看 typeof/不抛太弱）✓
   resolveImageKind.stats = () => ({ negHit: stat.negHit, unknown: stat.unknown, fail: stat.fail });
-  // 💡（审查 nixi-agent）："flush 是否真的把桶排空"要在用例里可断言（只看 typeof/不抛太弱）✓
   return resolveImageKind;
 }

@@ -79,6 +79,8 @@ const locEvent = (icon, loc, at) => ({
   receivedAt: at,
   content: { userId: UID, location: loc, instance: {}, travelingToLocation: '', user: { id: UID, displayName: 'psenY7', iconUrl: icon, bannerType: 'avatarBanner' } },
 });
+// 去重窗口按【墙钟】判定 ⇒ 用例时间戳必须相对当前时间（写死过去时间会在几天后失效 ✗ 2026-10-01 实测）
+const at = (i) => new Date(Date.now() - (30 - i) * 1000).toISOString();
 const LOC_SAME = 'wrld_f2de4d2d-324b-485f-a8bf-ec93bed3382a:58446~private(usr_self)~region(jp)';
 const LOC_OTHER = 'wrld_f2de4d2d-324b-485f-a8bf-ec93bed3382a:99999~private(usr_self)~region(jp)';
 const locRows = (loc) => storage.query(
@@ -87,18 +89,18 @@ const locRows = (loc) => storage.query(
 
 test('🔴 换模型（同实例 user-location + 新 iconUrl）⇒ 记「模型变动」且不产重复位置行（用户 2026-09-28 报障「换模型被显示为换地图」）', async () => {
   const before = countOf('avatar');
-  await pipeline.process(locEvent(MODEL_A, LOC_SAME, '2026-09-28T19:09:23.000Z'));
-  await pipeline.process(locEvent(MODEL_B, LOC_SAME, '2026-09-28T19:09:28.000Z'));
+  await pipeline.process(locEvent(MODEL_A, LOC_SAME, at(0)));
+  await pipeline.process(locEvent(MODEL_B, LOC_SAME, at(1)));
   assert.equal(countOf('avatar') - before, 1, '同实例重发 + iconUrl 变 ⇒ 必须记 1 条模型变动');
   assert.equal(locRows(LOC_SAME), 1, '同实例重复不得落第二条位置行（否则动态流显示成「换地图」）');
 });
 
 test('同实例、iconUrl 也没变 ⇒ 不落新位置行（纯重发）', async () => {
-  await pipeline.process(locEvent(MODEL_B, LOC_SAME, '2026-09-28T19:12:00.000Z'));
+  await pipeline.process(locEvent(MODEL_B, LOC_SAME, at(2)));
   assert.equal(locRows(LOC_SAME), 1, '仍是同一条');
 });
 
 test('换到别的实例 ⇒ 照常落位置行（去重不能把真位置变化吃掉）', async () => {
-  await pipeline.process(locEvent(MODEL_B, LOC_OTHER, '2026-09-28T19:13:00.000Z'));
+  await pipeline.process(locEvent(MODEL_B, LOC_OTHER, at(3)));
   assert.equal(locRows(LOC_OTHER), 1);
 });
