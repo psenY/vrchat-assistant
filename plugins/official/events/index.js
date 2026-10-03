@@ -3,9 +3,12 @@
  * =====================================================================
  * VRChat 社区活动聚合（采集 → 群组深度挖掘 → 音乐/虚拟主播筛选 → 结构化 JSON + 落库）。
  *
- * 数据源（零依赖：全部用 Node ≥22 内置 fetch，不 import core/）：
- *   - VRC Search（search.vrcwwt.com）：日用/日英文社区活动，SSR HTML 解析
- *   - RLVRC（api.rlvrc.cn）：中文社区活动，直接 JSON API
+ * 数据源（插件零依赖：不 import core/、不引 playwright；需浏览器的源经 core 服务 consume）：
+ *   - VRC Search（search.vrcwwt.com）：日用/日英文社区活动，SSR HTML 解析。
+ *     被 Cloudflare JS 挑战保护（裸 HTTP 一律 403）→ 整批交给 core 的
+ *     web.browserFetchMany（headful 浏览器过挑战）；通道不可用时整源标 not_queried 降级。
+ *     该源 naive 时间为 **UTC**。
+ *   - RLVRC（api.rlvrc.cn）：中文社区活动，直接 JSON API，naive 时间为 **北京时间**（无时区标记）
  *   - VRCEve（Google Calendar API v3）：日本社区，含完整日文 desc + vrc.group 短码
  *   - VRCEvent-KR（Google Calendar API v3）：韩国社区
  *
@@ -29,6 +32,7 @@ import https from 'node:https';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import { eventTzInfo, selectWithinLimit } from './lib.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // 注意：环境变量名刻意避开 KEY/SECRET/TOKEN/PASSWORD/COOKIE/AUTH 子串，
@@ -152,37 +156,112 @@ export default function register(api) {
   }
 
   // ════════════ 数据源 1：VRC Search（SSR HTML）════════════
-    // 类别 × 时间窗 矩阵抓取。返回 { events[], okCount, failCount }（okCount/failCount 供 sourceBreakdown 区分「源不可达」与「无活动」）。
-    async function collectVrcSearch(opts) {
-      const CATEGORIES = ['music', 'dance', 'hangout', 'gaming', 'roleplaying', 'performance', 'education'];
-      const WINDOWS = ['next-week', 'next-month'];
-      const opened = [];
-      let okCount = 0, failCount = 0; // 单页请求成功/失败数（403/超时 = 不可达）
-      for (const cat of CATEGORIES) {
-        for (const win of WINDOWS) {
-          const url = `https://search.vrcwwt.com/events/${cat}/${win}/`;
-          try {
-            const page = await httpGet(url);
-            okCount++;
-            opened.push(...parseVrcSearchCards(page, cat, win, 'multi'));
-          } catch (e) { failCount++; }
-        }
+  // 抓取目标矩阵：类别 × 时间窗（7×2）+ 语言码 × 类别 × 时间窗（3×7×2）= 56 页。
+  const VRS_CATEGORIES = ['music', 'dance', 'hangout', 'gaming', 'roleplaying', 'performance', 'education'];
+  const VRS_WINDOWS = ['next-week', 'next-month'];
+  function vrcSearchTargets() {
+    const targets = [];
+    for (const cat of VRS_CATEGORIES) {
+      for (const win of VRS_WINDOWS) {
+        targets.push({ url: `https://search.vrcwwt.com/events/${cat}/${win}/`, cat, win, lang: 'multi' });
       }
-      // 语言码 × 类别（zh/ja/ko 细分，中文/韩文主来源）
-      for (const langCode of ['zh', 'ja', 'ko']) {
-        for (const cat of CATEGORIES) {
-          for (const win of WINDOWS) {
-            const url = `https://search.vrcwwt.com/${langCode}/events/${cat}/${win}/`;
-            try {
-              const page = await httpGet(url);
-              okCount++;
-              opened.push(...parseVrcSearchCards(page, cat, win, langCode));
-            } catch (e) { failCount++; }
-          }
-        }
-      }
-      return { events: opened, okCount, failCount };
     }
+    // 语言码 × 类别（zh/ja/ko 细分，中文/韩文主来源）
+    for (const langCode of ['zh', 'ja', 'ko']) {
+      for (const cat of VRS_CATEGORIES) {
+        for (const win of VRS_WINDOWS) {
+          targets.push({ url: `https://search.vrcwwt.com/${langCode}/events/${cat}/${win}/`, cat, win, lang: langCode });
+        }
+      }
+    }
+    return targets;
+  }
+
+  // 浏览器通道不可用时给调用方/Agent 的可读原因（源被标 not_queried，不是「可达但无活动」）
+  const VRS_DEGRADE_HINTS = {
+    service_unavailable: '核心未提供 web.browserFetchMany 浏览器服务（本插件零依赖，不自行拉起浏览器）',
+    consume_failed: '调用核心浏览器服务抛异常',
+    bad_service_result: '核心浏览器服务返回结构异常',
+    no_browser_channel: 'msedge/chrome/chromium 均不可启动',
+    playwright_unavailable: '核心未安装 playwright 依赖',
+    browser_launch_failed: '浏览器启动失败',
+    cloudflare_challenge_unresolved: 'Cloudflare JS 挑战未在预算内自动放行',
+    deadline_exceeded: '整批抓取时间预算用尽',
+    all_pages_failed: '浏览器已启动但全部页面未取到内容',
+    browser_error: '浏览器抓取中断',
+  };
+
+  // 56 个 URL 一次性交给 core 浏览器服务（headful 浏览器过 Cloudflare 挑战，同上下文复用 cf_clearance）。
+  // 该站裸 HTTP 一律 403（实测带不带浏览器 UA 都拦），逐 URL 裸请求 = 56 条 fail + 每个各等一次超时
+  // （单次采集被拖到 200s+），故通道不可用/整批未成功时**整源结构化降级**，不再逐个发裸请求。
+  async function fetchVrcSearchPages(targets) {
+    if (typeof api.hasService !== 'function' || !api.hasService('web.browserFetchMany')) {
+      api.log(`[跳过] VRC Search 需 core 浏览器服务 web.browserFetchMany 过 Cloudflare 挑战，当前核心未提供 → ${targets.length} 页整源跳过`);
+      return { unavailable: true, reason: 'service_unavailable' };
+    }
+    let r;
+    try {
+      // 不传 timeoutMs：单页预算统一由 core 读 VRC_MONITOR_BROWSER_FETCH_TIMEOUT_MS（默认 45000）；
+      // 插件写死 45000 会让该 env **只能下调、无法上调**（审查建议）。
+      r = await api.consume('web.browserFetchMany', { urls: targets.map(t => t.url) });
+    } catch (e) {
+      api.log(`[失败] VRC Search 调用浏览器服务异常：${String(e.message || e).slice(0, 160)} → 整源跳过`);
+      return { unavailable: true, reason: 'consume_failed' };
+    }
+    if (!r || !Array.isArray(r.results)) {
+      api.log('[失败] VRC Search 浏览器服务返回结构异常 → 整源跳过');
+      return { unavailable: true, reason: 'bad_service_result' };
+    }
+    if (!r.ok) {
+      api.log(`[跳过] VRC Search 浏览器抓取未成功（reason=${r.reason || 'unknown'}，耗时 ${r.durationMs}ms）→ 整源标记未查询`);
+      return { unavailable: true, reason: r.reason || 'all_pages_failed' };
+    }
+    return { unavailable: false, results: r.results, durationMs: r.durationMs };
+  }
+
+  // 按 URL 对齐解析每页 HTML，保留 okCount/failCount 语义（单页取回但解析失败计入 fail）
+  function parseVrcSearchResults(targets, results) {
+    const byUrl = new Map();
+    for (const res of results) {
+      if (res && res.url && !byUrl.has(res.url)) byUrl.set(res.url, res);
+    }
+    const opened = [];
+    let okCount = 0, failCount = 0;
+    for (const t of targets) {
+      const res = byUrl.get(t.url);
+      if (res && res.status >= 200 && res.status < 300 && res.body) {
+        try {
+          opened.push(...parseVrcSearchCards(res.body, t.cat, t.win, t.lang));
+          okCount++;
+        } catch (e) { failCount++; }
+      } else {
+        failCount++;
+      }
+    }
+    return { opened, okCount, failCount };
+  }
+
+  // 返回 { events[], okCount, failCount }（okCount/failCount 供 sourceBreakdown 区分「源不可达」与「无活动」）；
+  // 降级时返回 { events:[], okCount:0, failCount:0, unavailable:true, reason }。
+  async function collectVrcSearch(opts) {
+    const targets = vrcSearchTargets();
+    let parsed = { opened: [], okCount: 0, failCount: 0 };
+    for (let attempt = 0; attempt <= 1; attempt++) {   // 整批最多重试 1 次（不是 56 次独立重试）
+      const resp = await fetchVrcSearchPages(targets);
+      if (resp.unavailable) {
+        return { events: [], okCount: 0, failCount: 0, unavailable: true, reason: resp.reason };
+      }
+      parsed = parseVrcSearchResults(targets, resp.results);
+      if (parsed.opened.length > 0 || attempt === 1) {
+        api.log(parsed.opened.length > 0
+          ? `[浏览器] VRC Search ${parsed.okCount}/${targets.length} 页解析成功（第 ${attempt + 1} 次尝试，耗时 ${resp.durationMs}ms），活动 ${parsed.opened.length} 条`
+          : `[警告] VRC Search ${parsed.okCount}/${targets.length} 页可取但 0 命中（第 ${attempt + 1} 次尝试，耗时 ${resp.durationMs}ms）`);
+        break;
+      }
+      api.log(`[重试] VRC Search 首批 0 命中 → 整批重试 1 次（${targets.length} 页）`);
+    }
+    return { events: parsed.opened, okCount: parsed.okCount, failCount: parsed.failCount };
+  }
 
   function parseVrcSearchCards(page, category, win, lang) {
     const cards = page.split('<article class="list-group-item result-row result-row-event">').slice(1);
@@ -524,88 +603,10 @@ export default function register(api) {
     return url; // 非标准（视频/外部图）保持原样（PDF 管道下载时再按需处理）
   }
 
-  // ② 双列时区：活动本地时间（社团时区）+ 北京时间 + 时区标签。
-  //   naive（无时区，VRC Search 输出 UTC，见 JSON-LD）按 languages/lang 判本地偏移；
-  //   aware（VRCEve +09:00=JST）直接用自带偏移。
-  function eventTzInfo(e) {
-      const out = { start_local: '', start_bj: '', tz_label: '', tz_offset: 0 };
-      const t = e && e.start;
-      if (!t) return out;
-      const BJ_OFF = 8 * 3600 * 1000;
-      try {
-        const raw = String(t);
-        // 判断 naive（原始无时区，VRC Search 输出 UTC）vs aware（VRCEve +09:00）
-        const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$|[+-]\d{4}$/.test(raw.trim());
-        if (!hasTz) {
-          // naive: 当 UTC。本地偏移按社团语言，北京=UTC+8
-          const iso = raw.trim().replace(' ', 'T') + 'Z';   // 补 Z 当 UTC
-          const utcMs = Date.parse(iso);
-          if (isNaN(utcMs)) return out;
-          const offH = localOffsetHs(e);
-          out.start_local = fmtDtUtc(utcMs + offH * 3600 * 1000);
-          out.start_bj = fmtDtUtc(utcMs + BJ_OFF);
-          out.tz_offset = offH;
-          out.tz_label = tzName(offH, e);
-        } else {
-          // aware: 自带偏移。北京=偏移→UTC再+8；本地=原时区字段
-          const iso = raw.trim().replace(' ', 'T');
-          const dt = new Date(iso);
-          if (isNaN(dt.getTime())) return out;
-          // Date.parse(iso) 直接就是 UTC 纪元毫秒（已按 ISO 自带偏移换算）
-          const utcMs = Date.parse(iso);
-          // 解析字符串里显式的偏移（若 ISO 有偏移）；无则推断为 0
-          const oz = String(iso).match(/[+-](\d{2}):?(\d{2})$/);
-          const offH = oz ? (+oz[1] + (+oz[2] / 60)) : 0;
-          out.start_local = rawLocal(iso);                    // 本地=原时区字段
-          out.start_bj = fmtDtUtc(utcMs + BJ_OFF);            // 北京=UTC+8
-          out.tz_offset = offH;
-          out.tz_label = tzName(offH, e);
-        }
-      } catch (err) {}
-      const js = String(t);
-      // 用 Google Calendar 权威 timeZone 区分 KST/JST（同偏移 +09:00，但名不同）；默认按偏移
-      const tz = String(e.time_zone || '');
-      if (tz.includes('Seoul')) { out.tz_label = 'KST'; out.tz_offset = 9; }
-      else if (tz.includes('Tokyo')) { out.tz_label = 'JST'; out.tz_offset = 9; }
-      else if (js.includes('+09:00') || js.includes('+0900')) { out.tz_label = (String(e.lang) === 'ko') ? 'KST' : 'JST'; out.tz_offset = 9; }
-      else if (js.includes('+08:00')) { out.tz_label = '北京时间'; out.tz_offset = 8; }
-      else if (js.includes('+00:00') || js.endsWith('Z')) { out.tz_label = 'UTC'; out.tz_offset = 0; }
-      return out;
-    }
-
-  function localOffsetHs(e) {
-    const langs = (e.languages || []).join(' ') + ' ' + String(e.lang || '').toLowerCase();
-    const dl = langs.toLowerCase();
-    if (/日本語|japanese|jpn|ja\b/.test(dl)) return 9;
-    if (/korean|ko\b|한국/.test(dl)) return 9;
-    if (/chine|zh\b|中文/.test(dl)) return 8;
-    if (/russian|rus|ukr/.test(dl)) return 3;
-    if (/english|eng|英语|en\b/.test(dl)) return -4;
-    return -4; // 默认国际美东
-  }
-
-  function tzName(offH, e) {
-      // JST/KST 同偏移 +09:00，靠 e.lang/time_zone 区分（韩国日历应标 KST）
-      if (offH === 9) return (String((e && e.time_zone) || '').includes('Seoul') || String(((e || {}).lang || '')) === 'ko') ? 'KST' : 'JST';
-      return { '-4': 'ET', 3: 'MSK', 8: '北京时间' }[offH] || `UTC${offH >= 0 ? '+' : ''}${offH}`;
-    }
-
-  // 按 UTC 字段格式化时间戳(millis)，不依赖服务器本地时区（跨平台约束 §3.6）
-  function fmtDtUtc(ms) {
-    if (!ms || isNaN(ms)) return '';
-    const d = new Date(ms);
-    const p = n => String(n).padStart(2, '0');
-    return `${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
-  }
-
-  // 原样显示 aware ISO 的本地时段（去掉偏移部分，如 2026-08-25T12:00:00+09:00 → 08-25 12:00）
-  function rawLocal(iso) {
-    const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
-    if (!m) return String(iso).slice(0, 16).replace('T', ' ');
-    let [_, y, mo, d, h, mi] = m;
-    if (y === '0001') return '';
-    return `${mo}-${d} ${h}:${mi}`;
-  }
+  // ② 双列时区（活动本地时间 + 北京时间 + 时区标签）见 ./lib.js 的 eventTzInfo：
+  //   naive（无时区标记）先按**数据源**还原真实 UTC（naiveBaseOffsetH：RLVRC=+8 北京时间、
+  //   VRC Search=UTC(0)），再按 languages/lang 判社团本地偏移；aware（VRCEve +09:00=JST）用自带偏移。
+  //   抽到 lib.js 是为了能被 test/events-tz-and-truncation.test.mjs 直接 import 断言（防回归）。
 
   // ③ 中文简介 / 中文参加方式（desc_zh / join_info_zh）
   //   说明：插件返回结构化数据，desc_zh 的语义化翻译需要 LLM 能力，插件内做「规则化中文」：
@@ -708,7 +709,12 @@ export default function register(api) {
             if (wantVrcSearch) {
               const r = await collectVrcSearch(opts);
               collected = collected.concat(r.events);
-              srcStatus.vrcsearch = { ok: r.okCount, fail: r.failCount };
+              srcStatus.vrcsearch = r.unavailable
+                ? {
+                    ok: 0, fail: 0, queried: false, not_queried: true,
+                    reason: `VRC Search 需有头浏览器过 Cloudflare 挑战：${VRS_DEGRADE_HINTS[r.reason] || r.reason}`,
+                  }
+                : { ok: r.okCount, fail: r.failCount, queried: true };
             }
             if (wantRlvrc) {
               try { collected = collected.concat(await collectRlvrc()); srcStatus.rlvrc = { ok: 1, fail: 0 }; }
@@ -817,7 +823,16 @@ export default function register(api) {
       }
     }
 
-    api.log(`[成功] 完成：采集 ${collected.length} → 去重 ${dedup.length} → 输出 ${events.length}`);
+    // limit 截断（未来优先）：排序主键是群组人数、与时间无关，原先的 slice(0,limit)
+    // 会把窗口内 1300+ 场里未来几天整段砍掉（实测 limit=300 只返回到 10-02）。
+    const limitClamped = Math.min(Math.max(parseInt(args.limit, 10) || 200, 1), 500);
+    const enriched = events.map(enrichEvent);
+    const { picked, truncated, dropped } = selectWithinLimit(enriched, limitClamped, Date.now());
+    if (truncated) {
+      api.log(`[截断] 窗口内 ${enriched.length} 条 > limit=${limitClamped}：保留未开始/进行中 + 最近过去共 ${picked.length} 条，丢弃 ${dropped} 条（时间最早的活动）`);
+    }
+
+    api.log(`[成功] 完成：采集 ${collected.length} → 去重 ${dedup.length} → 输出 ${events.length}（返回 ${picked.length}）`);
 
     // 返回结构化 JSON（供 Agent 翻译/渲染 PDF/进一步加工）
     const HAVE_GOOGLE_KEY = getGoogleKey() ? true : false;
@@ -836,15 +851,19 @@ export default function register(api) {
       sourceBreakdown: {
                     // 每源 { count, ok, fail, queried?, not_queried?, reason? }：
                     //   ok>0 且 count=0 → 「源可访问但无活动」；ok=0 且 fail>0 → 「源不可达」；
-                    //   not_queried=true → 「已有 key 配置，按需查询」（无 key 时不以 ok:1/fail:0 伪装成"可达但无活动"）。
-                    vrcsearch: { count: collected.filter(e => e.src === 'VRC Search').length, ...(srcStatus.vrcsearch || {}), queried: true },
+                    //   not_queried=true → 「根本没查这一源」（Google 无 key / VRC Search 浏览器通道不可用），
+                    //   不以 ok:1/fail:0 伪装成"可达但无活动"，也不逐 URL 刷 fail。
+                    //   注：queried 默认值必须写在展开**之前**，否则 srcStatus 的 queried:false 会被覆盖掉。
+                    vrcsearch: { count: collected.filter(e => e.src === 'VRC Search').length, queried: true, ...(srcStatus.vrcsearch || {}) },
                     rlvrc: { count: collected.filter(e => e.src === 'RLVRC').length, ...(srcStatus.rlvrc || {}), queried: true },
                     vrceve: { count: collected.filter(e => e.src === 'VRCEve').length, ...(srcStatus.vrceve || {}) },
                     vrckr: { count: collected.filter(e => e.src === 'VRCEvent KR').length, ...(srcStatus.vrckr || {}) },
                   },
-      counts: { collected: collected.length, deduped: dedup.length, output: events.length },
+      // returned/truncated 为新增键：returned=实际返回条数，truncated=是否发生 limit 截断
+      // （output 保持原语义 = 窗口内事件总数，不随 limit 变化）
+      counts: { collected: collected.length, deduped: dedup.length, output: events.length, returned: picked.length, truncated },
       groupsMined: toMine.filter(e => e.group_id).length,
-      events: events.map(enrichEvent).slice(0, Math.min(Math.max(parseInt(args.limit, 10) || 200, 1), 500)),
+      events: picked,
     };
   }
 
@@ -995,7 +1014,7 @@ export default function register(api) {
   // ── 工具注册 ──
   api.registerTool({
     name: 'fetch_community_events',
-    description: '[events] 聚合 VRChat 社区活动：采集(VRC Search/RLVRC/VRCEve/VRCEvent-KR) → 群组深度挖掘(短码/活动名/世界名反查) → 音乐∪虚拟主播筛选 → 结构化 JSON + 落库 plg_events_store。可选 peekGroups=true 窥探已挖掘群组公告补充活动（有副作用：加入→读→退出）。用于找"最近/今晚有什么活动、哪些要参与、群组热度"。未配置 Google Key 时返回 configStatus 的创建网址指引。PDF 渲染另走管道。',
+    description: '[events] 聚合 VRChat 社区活动：采集(VRC Search/RLVRC/VRCEve/VRCEvent-KR) → 群组深度挖掘(短码/活动名/世界名反查) → 音乐∪虚拟主播筛选 → 结构化 JSON + 落库 plg_events_store。可选 peekGroups=true 窥探已挖掘群组公告补充活动（有副作用：加入→读→退出）。用于找"最近/今晚有什么活动、哪些要参与、群组热度"。未配置 Google Key 时返回 configStatus 的创建网址指引。VRC Search 经 core 有头浏览器服务过 Cloudflare 挑战，通道不可用时该源在 sourceBreakdown 标 not_queried+reason（其余源不受影响）。PDF 渲染另走管道。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1008,7 +1027,7 @@ export default function register(api) {
                 peekGroups: { type: 'boolean', default: false, description: '窥探已挖掘群组的公告作为侧面补充源（有副作用：会加入→读公告→退出，成员可见加入通知）' },
                 startDate: { type: 'string', description: '自定义开始日期 YYYY-MM-DD（与 endDate 成对）。仅作用于 Google Calendar 源(VRCEve/VRCEvent-KR)；VRC Search 固定抓 next-week/month、RLVRC 固定抓全量，不受此 参数约束' },
                 endDate: { type: 'string', description: '自定义结束日期 YYYY-MM-DD（同 startDate，仅作用于 Google Calendar 源）' },
-        limit: { type: 'number', default: 200, description: '返回的活动条数上限(≤500)' },
+        limit: { type: 'number', default: 200, description: '返回的活动条数上限(≤500)。超限时**未来优先**：先保留未开始/刚开头的活动（按现有顺序），不足额再用最近的过去事件补齐；是否发生截断见 counts.truncated' },
       },
     },
     handler: async (args) => handleFetchCommunityEvents(args),

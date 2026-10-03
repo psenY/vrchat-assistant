@@ -37,6 +37,7 @@ import {
   getCreators, addCreator, removeCreator,
   scanCreatorWorlds, getWorldDigest,
 } from './core/fetch-x-worlds.js';
+import { browserFetchMany } from './core/browser-fetch.js';
 import {
   handleScanNewWorlds, handleGetNewWorlds, handleRateWorld, handleMarkWorldVisited,
   handleSetWorldSleep,
@@ -699,6 +700,12 @@ function registerCoreServices(loader, ctx) {
     return { ok: true };
   });
   loader.serviceOwners.set('groups.cache', 'core');
+
+  // 有头浏览器页面抓取服务（供 events 插件 consume）：VRC Search（search.vrcwwt.com）被
+  // Cloudflare JS 挑战保护，裸 HTTP 一律 403，必须有头浏览器过挑战。浏览器能力只放 core
+  // （零依赖契约：插件不得 import playwright / 自行拉起浏览器），插件只 consume。
+  loader.services.set('web.browserFetchMany', (args) => browserFetchMany((args && args.urls) || [], args || {}));
+  loader.serviceOwners.set('web.browserFetchMany', 'core');
 
   // 认证与网络配置服务（供 auth-guard 插件查询，owner='core'）
   loader.services.set('core.authConfig', () => ({
