@@ -69,6 +69,8 @@
     "get_group_invites",
     "get_group_instances",
     "get_group_announcement",
+    "set_group_announcement",
+    "delete_group_announcement",
     "search_planet_worlds",
     "recommend_planet_worlds",
     "recommend_worlds",

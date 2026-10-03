@@ -111,6 +111,8 @@ metadata:
 | `join_group` | 加入群组（open 群直接加入；已是成员返回 alreadyMember:true；`groupId` 必填） |
 | `leave_group` | 退出群组（`POST /groups/{id}/leave`；必须 `confirm: true`；非成员返回 notMember） |
 | `peek_group_announcement` | **窥探群公告**：一键「加入→读公告→退出」，仅对 open 群生效，需 `confirm: true` |
+| `set_group_announcement` | **发布/覆盖群公告**（title+text 必填）：**覆盖已有公告**（legacy 单公告槽），`sendNotification: true` 可全员推送；发前自查 `group-announcement-manage` 权限，缺权限返回 `permitted:false` 不发请求；必须 `confirm: true`（缺省只回预览）；**破坏性工具，安全模式被拦** |
+| `delete_group_announcement` | **删除群公告**：⚠️ **不可恢复**（单公告槽没有历史版本）；同样发前自查 `group-announcement-manage`，缺权限返回 `permitted:false` 不发请求；必须 `confirm: true`（缺省只回预览）；**破坏性工具，安全模式被拦** |
 | `get_favorite_friends_locations` | **好友收藏夹位置**：列出收藏分组内好友当前位置（支持 `searchName` 按名直查），按推荐度排序，private 自动排除 |
 | `recommend_join` | **推荐加入**：全部在线好友综合评分推荐（熟悉度 + 收藏夹权重 + 圿间场景 + 实例人数/类型） |
 | `set_join_preference` | 设置推荐偏好（自然语言，如「我不喜欢人太多」→ 爆满重罚） |
