@@ -1,6 +1,6 @@
 ---
 name: vrchat-group-queries
-description: "VRChat groups: announcements, join/leave/peek."
+description: "VRChat groups: announcements, posts, join/leave/peek."
 version: 1.0.0
 metadata:
   hermes:
@@ -10,7 +10,7 @@ metadata:
 
 # VRChat 群组域 — 查询与操作
 
-本 skill 覆盖 **vrc-monitor 的群组域**：群组查询、公告读取、403 分诊、加入/退出/窥探。
+本 skill 覆盖 **vrc-monitor 的群组域**：群组查询、公告/帖子读取与追加、403 分诊、加入/退出/窥探。
 
 > ⚠️ **工具表唯一权威在 vrc-monitor-agent skill**。本 skill 只写工作流与域内细节，不复制工具表。通用 MCP 调用陷阱见 vrc-monitor-agent「常见陷阱」。
 > MCP 端点：`http://127.0.0.1:8799/mcp`；服务未启动处理见 vrc-monitor-agent「服务健康检查」。
@@ -52,3 +52,20 @@ metadata:
 **真实写操作测试后的副作用验证**：用户明确授权后可真实执行，但**完成后必须验证副作用已清理**——`get_user_groups` 对比群数确认退出生效。测写操作 = 测完查状态恢复。
 
 **群组定位补充**：用户报的群名先拉 `get_user_groups`（目标用户或自己）按音近/近似匹配（口述群名常被语音识别歪）。**世界关联群组（`GET /worlds/{id}` 的 `groupId` 字段）反查思路实测基本不可用**（多数世界作者没绑群）。别走"世界→群"这条路，直接拉人的群组列表。
+
+## 4. 帖子 posts（追加式）
+
+**"发新公告"为什么把上一条顶掉了？** 因为 `POST /groups/{groupId}/announcement` 是 **legacy 单槽**。官方 spec 原话：
+
+> Warning: This will also remove all announcements. To make proper announcements, use the posts endpoint instead
+
+所以要**追加**一条公告/帖子，走 posts：
+
+- `create_group_post {groupId, title, text, visibility?}` → `POST /groups/{groupId}/posts`（body 必填 `{title, text, visibility}`，`visibility` = `group`（默认）/ `public`）——**旧帖保留**
+- `get_group_posts {groupId, n?, offset?, publicOnly?}` → `GET /groups/{groupId}/posts`，返回 `{posts, total}`（分页用 `offset`）
+- `update_group_post` / `delete_group_post` → `PUT` / `DELETE /groups/{groupId}/posts/{postId}`，`postId` 取自 `get_group_posts`（形如 `not_...`）——⚠️ `update` 是**原地覆盖**（无版本、不可恢复），**不是**追加式，与 `set_group_announcement` 同口径属破坏性工具（安全模式被拦）；**要加历史只用 `create_group_post`**
+- 列表的**作者补名单次最多 10 个**（超出 `authorName: null` + 一行 INFO 日志）——这是全局限流器保护（2.6s/次、共享额度），不是「这页只有 10 个作者」
+- `GET /groups/{groupId}/announcement` 返回的是**最新一条 post**（实测）——所以 `get_group_announcement` 看得到 `create_group_post` 发的内容，但它只是时间线的顶端快照，**要历史必须用 `get_group_posts`**
+- **权限位**：实测群 roles 与 `/groups/roleTemplates` 里**不存在任何 "post" 权限**，只有 `group-announcement-manage`——发帖沿用同一个权限自查，缺权限直接返回 `permitted:false` 不发请求
+- `sendNotification` 缺省 `false`：追加帖子默认不打扰成员，要全员推送才显式给 `true`
+- 被顶掉 / 删掉的正文并非完全找不回：群审计日志 `GET /groups/{groupId}/auditLogs` 的 `eventType: "group.announcement"` 条目带 `data.title` / `data.text`（发帖原文），可核对恢复

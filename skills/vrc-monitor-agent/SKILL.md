@@ -113,6 +113,10 @@ metadata:
 | `peek_group_announcement` | **窥探群公告**：一键「加入→读公告→退出」，仅对 open 群生效，需 `confirm: true` |
 | `set_group_announcement` | **发布/覆盖群公告**（title+text 必填）：**覆盖已有公告**（legacy 单公告槽），`sendNotification: true` 可全员推送；发前自查 `group-announcement-manage` 权限，缺权限返回 `permitted:false` 不发请求；必须 `confirm: true`（缺省只回预览）；**破坏性工具，安全模式被拦** |
 | `delete_group_announcement` | **删除群公告**：⚠️ **不可恢复**（单公告槽没有历史版本）；同样发前自查 `group-announcement-manage`，缺权限返回 `permitted:false` 不发请求；必须 `confirm: true`（缺省只回预览）；**破坏性工具，安全模式被拦** |
+| `get_group_posts` | **群帖子列表**（官方多帖接口 `GET /groups/{gid}/posts`）：`n`/`offset`/`publicOnly` 可选（只在有值时进 query），返回 `total`/`count` + 每条 `id`/`title`/`text`/`visibility`/`authorName`/时间/`roleIds`；**作者补名单次最多 10 个**（全局限流器保护），超出 `authorName: null` 并留一行 INFO；非成员 403/404 回空态**不抛错**（与 `get_group_announcement` 同口径）。「发新帖顶掉旧帖」的真实原因见 vrchat-group-queries skill |
+| `create_group_post` | **追加一条群帖子**（`POST /groups/{gid}/posts`）：**不顶掉已有帖子**（要保留历史就用它，别用 `set_group_announcement`）。title+text 必填；`visibility` 缺省 `group`（只接受 `group`/`public`）；`sendNotification` 缺省 `false`（不打扰成员）；可带 `imageId`/`roleIds`（空数组=不定向，不进 body）；发前自查 `group-announcement-manage`，缺权限返回 `permitted:false` 不发请求；必须 `confirm: true`（缺省只回预览）；非破坏性（可用 `delete_group_post` 撤销） |
+| `update_group_post` | **原地改单条群帖子**（`PUT /groups/{gid}/posts/{postId}`）：`postId` 必填（取自 `get_group_posts`），`title`/`text`/`visibility` 至少给一个（只带给出的字段，不覆盖其余）；⚠️ **改动是原地覆盖、无版本、本工具不可恢复**；权限自查与 `confirm` 语义同上；**破坏性工具（与 `set_group_announcement` 同口径），安全模式被拦** |
+| `delete_group_post` | **删单条群帖子**（`DELETE /groups/{gid}/posts/{postId}`）：`postId` 必填；权限自查 + `confirm: true`（缺省只回预览）；**破坏性工具，安全模式被拦**——正文只能靠群审计日志（`eventType: "group.announcement"` 带 title/text）或本地归档核对，本工具不可恢复 |
 | `get_favorite_friends_locations` | **好友收藏夹位置**：列出收藏分组内好友当前位置（支持 `searchName` 按名直查），按推荐度排序，private 自动排除 |
 | `recommend_join` | **推荐加入**：全部在线好友综合评分推荐（熟悉度 + 收藏夹权重 + 圿间场景 + 实例人数/类型） |
 | `set_join_preference` | 设置推荐偏好（自然语言，如「我不喜欢人太多」→ 爆满重罚） |
