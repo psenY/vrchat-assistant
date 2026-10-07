@@ -4,19 +4,17 @@
 
 import { ctx, log, parseLocation } from '../server-context.js';
 import { resolveWorldNames } from '../world-names.js';
-import { isWebPresence } from '../event-pipeline.js';
+import { isOnlineForCount, readOnlineCountIncludeWeb } from '../online-count-policy.js';
+import { fetchProfileBio } from '../profile-bio.js';   // 简介(bio)已移出 user 对象（2026-10-07）
 
 export async function handleGetOnlineFriends() {
   const { storage, api } = ctx;
   const r = await api._request('GET', '/auth/user/friends?offline=false');
   if (r.status !== 200) throw new Error(`API error: ${r.status}`);
   const friends = Array.isArray(r.data) ? r.data : [];
-  // 在线口径与 friendState 一致：含「网页在线」（VRC_MONITOR_ONLINE_INCLUDE_WEB，默认计入）
-  // VRChat 转网页/App 在线时只发 friend-active{platform:'web'}（不发 friend-offline），REST 返回
-  // platform='web' + location='offline' ⇒ 只按 location 过滤会把这些好友算成离线。
-  const includeWeb = Number(process.env.VRC_MONITOR_ONLINE_INCLUDE_WEB) !== 0;
-  const online = friends.filter((f) => (f.location && f.location !== 'offline')
-    || (includeWeb && isWebPresence(f.platform)));
+  // 在线口径与 friendState 统一走 core/online-count-policy.js（含「网页在线」开关，调用时读取）
+  const includeWeb = readOnlineCountIncludeWeb();
+  const online = friends.filter((f) => isOnlineForCount(f, includeWeb));
 
   const nicknames = storage.getNicknames({});
   const nicknameMap = new Map();
@@ -109,10 +107,12 @@ export async function handleGetFriendInfo({ userId, displayName }) {
   const r = await api._request('GET', `/users/${targetId}`);
   if (r.status !== 200) throw new Error(`API error: ${r.status}`);
   const u = r.data;
+  // 简介真值单独取：新版资料系统已把 bio 移出 user 对象 ⇒ 直接读 u.bio 会让该键整条消失 ✗（2026-10-07）
+  const bioText = await fetchProfileBio(api, u.id);
   return {
     userId: u.id,
     displayName: u.displayName,
-    bio: u.bio,
+    bio: bioText === undefined ? '' : bioText,
     status: u.status,
     statusDescription: u.statusDescription,
     state: u.state,
