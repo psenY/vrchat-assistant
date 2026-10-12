@@ -956,7 +956,7 @@ setOpsLogSink((kind, level, message) => {
         // 并**自动排一次静默期结束后的重试**（不再干等 5 分钟定时器或好友上下线事件）。
         // 我们自己的写入也会回来自触发 ⇒ remote === _lastSent ⇒ unchanged 早退，不会成环。
         if (event.type === 'user-update' || event.type === 'user-location') {
-          ctx.statusSync.sync().catch(() => {});
+          ctx.statusSync.sync(false, { hint: 'self-edit' }).catch(() => {});
         }
 
         // 核心关注好友活动日志（从内存缓存读取，不查 DB）

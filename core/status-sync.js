@@ -192,7 +192,7 @@ export class DynamicStatusSync {
     return { target: composeStatus(base, suffix, { separator: cfg.separator }), base };
   }
 
-  async sync(force = false) {
+  async sync(force = false, opts = {}) {
     const cfg = this.config;
     if (!cfg.enabled && !force) return { action: "skipped", reason: "disabled" };
     const online = this.ctx.friendState ? this.ctx.friendState.getOnlineCount() : null;
@@ -201,7 +201,11 @@ export class DynamicStatusSync {
     const now = this._now();
 
     if (!force && now - this._lastAt < MIN_INTERVAL_MS) {
-      return { action: "skipped", reason: "cooldown", nextInMs: MIN_INTERVAL_MS - (now - this._lastAt) };
+      const nextInMs = MIN_INTERVAL_MS - (now - this._lastAt);
+      // 她刚改过状态但撞上冷却（例如前一刻刚有好友上下线触发过同步）⇒ 冷却一过就自动核对，
+      // 否则这次核对会被冷却挡掉、又不排重试 ⇒ 又要干等下一次事件/5 分钟定时器
+      if (opts.hint === "self-edit") this._scheduleRetry(nextInMs + 2_000);
+      return { action: "skipped", reason: "cooldown", nextInMs };
     }
     if (!force && now < this._backoffUntil) {
       return { action: "skipped", reason: "writer-conflict-backoff", nextInMs: this._backoffUntil - now };

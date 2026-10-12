@@ -205,3 +205,29 @@ test('她连续改 3 次状态不会被退避（CONFLICT_LIMIT 3 提到 5 的动
   assert.deepEqual(reasons, ['grace', 'grace', 'grace']);
   assert.equal(s._backoffUntil, 0, '不该退避');
 });
+test('自己改状态撞上冷却 ⇒ 冷却一过就自动核对（不干等 5 分钟定时器）', async () => {
+  let now = 5_000_000;
+  const pending = { fn: null, ms: 0 };
+  const timers = {
+    setTimeout: (fn, ms) => { pending.fn = fn; pending.ms = ms; return { unref() {} }; },
+    clearTimeout: () => { pending.fn = null; },
+  };
+  const { ctx, state } = makeCtx({ desc: 'A', cfg: cfgOf() });
+  const s = new DynamicStatusSync(ctx, { now: () => now, timers });
+  await s.sync();
+  state.desc = '打机中';
+  now += 10_000;
+  const r = await s.sync(false, { hint: 'self-edit' });
+  assert.equal(r.reason, 'cooldown');
+  assert.equal(typeof pending.fn, 'function', '冷却路径也要排重试');
+  assert.ok(pending.ms > 50_000 && pending.ms < 70_000, '重试应排在冷却结束时: ' + pending.ms);
+  now += pending.ms;
+  await pending.fn();
+  await new Promise((r2) => setImmediate(r2));
+  assert.equal(state.puts.length, 1, '此刻仍不该写（静默期）');
+  assert.equal(typeof pending.fn, 'function', '接着排静默期重试');
+  now += pending.ms;
+  await pending.fn();
+  await new Promise((r2) => setImmediate(r2));
+  assert.equal(state.desc, '打机中 · 在线 5 人');
+});
