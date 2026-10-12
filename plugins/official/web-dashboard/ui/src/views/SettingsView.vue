@@ -7,6 +7,8 @@ import { toast } from '../toast.js';
 
 const enabled = ref(false);
 const template = ref('');
+const mode = ref('fixed');
+const separator = ref(' · ');
 const onlineNow = ref(null);
 const lastSent = ref('');
 const loading = ref(true);
@@ -17,7 +19,9 @@ async function load() {
   try {
     const r = await get('/api/dashboard/dynamic-status');
     enabled.value = !!r.enabled;
+    mode.value = r.mode === 'suffix' ? 'suffix' : 'fixed';
     template.value = r.template || '';
+    separator.value = r.separator || ' · ';
     onlineNow.value = (r.onlineNow ?? null);
     lastSent.value = r.lastSent || '';
   } catch (e) {
@@ -30,12 +34,13 @@ async function load() {
 async function save() {
   if (saving.value) return;
   const tpl = template.value.trim();
-  if (tpl.includes('{online}') === false && tpl.length > 0) {
-    toast('模板建议包含占位符：{online}/{total}/{webOnline}/{gameOnline}（会替换为对应计数）', 'warn');
+  const hasPh = ['{total}', '{online}', '{webOnline}', '{gameOnline}'].some((k) => tpl.includes(k));
+  if (!hasPh && tpl.length > 0) {
+    toast('模板建议包含占位符：{total}/{webOnline}/{gameOnline}（会替换为对应计数）', 'warn');
   }
   saving.value = true;
   try {
-    const r = await post('/api/dashboard/dynamic-status', { enabled: enabled.value, template: tpl });
+    const r = await post('/api/dashboard/dynamic-status', { enabled: enabled.value, mode: mode.value, template: tpl, separator: separator.value });
     if (r && r.error) throw new Error(r.error);
     const sr = r.syncResult || {};
     if (sr.action === 'synced') {
@@ -77,10 +82,24 @@ onMounted(load);
           <span class="set-toggle-hint">开启后好友上下线时自动更新；状态种类（在线/忙碌等）保持不变，只改自定义文本</span>
         </label>
         <div class="set-row">
-          <label class="set-label" for="ds-template">状态文本模板</label>
+          <span class="set-label">模式</span>
+          <div class="set-radios">
+            <label><input type="radio" value="fixed" v-model="mode" /> 整段覆盖（历史行为）</label>
+            <label><input type="radio" value="suffix" v-model="mode" /> 保留我写的正文，只在结尾加后缀</label>
+          </div>
+          <small class="set-hint">「保留正文」模式：你在 VRChat 里手打「打机中」，它会变成「打机中 · 在线 5 人」；你自己改文字不会被覆盖，只在结尾补或更新那截后缀；刚刚改过它会先等约 2 分钟再补。</small>
+        </div>
+        <div class="set-row">
+          <label class="set-label" for="ds-template">{{ mode === 'suffix' ? '后缀文本模板' : '状态文本模板' }}</label>
           <input id="ds-template" v-model="template" class="set-input" maxlength="64"
-            placeholder="在线 {online} 人" aria-label="状态文本模板" />
-          <small class="set-hint">可用占位符：{total}（总在线）、{webOnline}（网页/App 在线）、{gameOnline}（游戏内在线）；最长 64 字符。频繁变更受 VRChat 接口限频，引擎内置 65 秒冷却且文本无变化不提交。</small>
+            :placeholder="mode === 'suffix' ? '在线 {total} 人（会接在你正文后面）' : '在线 {total} 人'"
+            aria-label="状态文本模板" />
+          <small class="set-hint">可用占位符：{total}（总在线）、{webOnline}（网页/App 在线）、{gameOnline}（游戏内在线）；最长 64 字符（「保留正文」模式下超长时先截正文、保住计数）。频繁变更受 VRChat 接口限频，引擎内置 65 秒冷却、文本无变化不提交。</small>
+        </div>
+        <div class="set-row" v-if="mode === 'suffix'">
+          <label class="set-label" for="ds-sep">分隔符</label>
+          <input id="ds-sep" v-model="separator" class="set-input" maxlength="4" placeholder=" · " />
+          <small class="set-hint">正文与后缀之间的连接符，默认「 · 」（两边各一个空格）。</small>
         </div>
         <div class="set-row set-meta">
           <span>当前在线好友：<b>{{ onlineNow ?? '—' }}</b></span>
@@ -98,6 +117,8 @@ onMounted(load);
 <style scoped>
 .settings-wrap { padding: 12px 14px; max-width: 720px; }
 .set-card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 10px; padding: 16px; }
+.set-radios { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.set-radios label { display: flex; align-items: center; gap: 6px; }
 .set-title { display: flex; align-items: baseline; gap: 8px; margin-bottom: 14px; }
 .set-title i { color: var(--text-dim); }
 .set-sub { color: var(--text-dim); font-size: 12px; }

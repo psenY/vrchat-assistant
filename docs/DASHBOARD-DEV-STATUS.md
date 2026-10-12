@@ -997,3 +997,9 @@ status；`user-update + trust_level` 也是 status ⇒ `trustLevel` 只认 `frie
 `npm test`、`test-registry`、`check-doc-drift`、ui `vitest run` 全部通过
 （**具体用例数随仓库演进而变，不写死在这里**）。生产实测：`?updateTypes=bio` 一次请求 196ms 返回
 10 条全为 bio（total 79；未过滤 total 21538）。
+
+## 2026-10-12 设置页 · 动态状态新增模式选择
+
+- 设置页「动态状态」卡片新增 **模式**（整段覆盖 / 保留我写的正文、只在结尾加后缀）与 **分隔符** 两个控件；模板输入框在 suffix 模式下标注为「后缀文本模板」，并说明超长时先截正文保计数。
+- 后端：`POST /api/dashboard/dynamic-status` 透传 `mode` / `separator` 到 `dashboard.dynamicStatusSet`（校验：mode ∈ fixed|suffix）。
+- 现象对照：旧实现下使用者在 VRChat 里手输的状态会被整段覆盖 ⇒ 新模式的动机；详见 `docs/history/2026-10.md` 同日条目。

@@ -1228,7 +1228,9 @@ export default function register(api) {
         const body = await readJsonBody(req);
         sendJson(res, await api.consume('dashboard.dynamicStatusSet', {
           enabled: body.enabled,
+          mode: body.mode,
           template: body.template,
+          separator: body.separator,
           syncNow: body.syncNow !== false,
         }));
       } catch (e) {

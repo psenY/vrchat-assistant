@@ -1,59 +1,126 @@
 /**
  * 动态状态引擎（Dynamic Status Sync）—— 根据在线好友数量实时更新自己的自定义状态。
  *
- * 设计（用户 2026-09-07 确认）：
- *   - **开关默认关闭**，config 表 `dynamic_status` 键存储（运行期经 MCP 工具/dashboard 可切，无需重启）；
- *   - 触发 = friend-online/offline 事件驱动（start-monitor onEvent 钩子）+ 低频定时核对兜底；
- *   - 限流内建：①状态文本**真变化**才提交 PUT /auth/user；②最小冷却间隔（默认 65s，VRChat
- *     状态更新接口频率限制留足余量）；③PUT body 保留原 status 种类（active/join me 等），
- *     只改 statusDescription（自定义状态文本），不改变在线形态；
- *   - 模板：statusDescription 文本模板，`{online}` 占位符替换为当前在线好友数（默认"在线 {online} 人"）。
+ * 两种模式（config 表 `dynamic_status` 键，运行期经 MCP 工具 / dashboard 可切，无需重启）：
+ *   - `fixed`（默认，行为与历史一致）：整段 statusDescription 按模板覆盖，如「在线 {total} 人」；
+ *   - `suffix`（2026-10-12 用户拍板 B）：**保留你自己写的正文，只在结尾维护我们的后缀** ——
+ *     你在 VRChat 里手打「打机中」，下一轮它会变成「打机中 · 在线 5 人」；你自己改文字后
+ *     我们不覆盖它，只在结尾补/更新那截后缀。
  *
- * 事件高频场景（重连突发批量 online/offline）由冷却 + unchanged 早退双保险防刷 API。
+ * 触发 = friend-online/offline 事件驱动（start-monitor onEvent 钩子）+ 低频定时核对兜底。
+ * 防刷与防循环（suffix 模式下尤其重要）：
+ *   ① 文本**真变化**才 PUT；②最小冷却 65s；③远端已与目标一致 ⇒ unchanged 早退（写回不自我触发）；
+ *   ④ **后缀可识别 + 贪婪剥离**（幂等：连写 N 次不会累加成「在线 5 人 · 在线 5 人」）；
+ *   ⑤ 别人刚改过 ⇒ 静默期 GRACE_MS 内不写（避免打断使用者打字）；
+ *   ⑥ 同一段文字被别人反复改写 ≥3 次 ⇒ 退避 10 分钟并留一行日志（写入方抢写自保）。
+ *
+ * ⚠️ 同一 statusDescription 的写入方共三处：使用者本人（VRChat 客户端）、本引擎、
+ * presence-status 插件。后两者通过 `composeForOther()` 共用同一合成规则 ⇒ 产出文本一致，不互相抹除。
  */
 
-const CONFIG_KEY = 'dynamic_status';
-const DEFAULT_TEMPLATE = '在线 {total} 人';
+const CONFIG_KEY = "dynamic_status";
+const DEFAULT_TEMPLATE = "在线 {total} 人";
+const DEFAULT_SEPARATOR = " · ";
 const MIN_INTERVAL_MS = 65_000;
-const MAX_DESC_LEN = 64; // VRChat statusDescription 长度上限（保守取 64）
+const MAX_DESC_LEN = 64;
+const GRACE_MS = 120_000;
+const CONFLICT_LIMIT = 3;
+const CONFLICT_BACKOFF_MS = 600_000;
+const SUFFIX_MAX_STRIP = 5;
+
+/** 按 Unicode 码点截断（UTF-16 slice 会把 emoji 切半 ⇒ 用 Array.from） */
+function cut(s, n) {
+  const a = Array.from(String(s == null ? "" : s));
+  return a.length <= n ? a.join("") : a.slice(0, n).join("");
+}
+
+function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+/** 把后缀模板编译成"能认出我们上次写的那截尾巴"的正则（锚定结尾，占位符→数字） */
+export function suffixPattern(template) {
+  const body = String(template == null ? "" : template).trim();
+  if (!body) return null;
+  let out = "";
+  const re = /\{(online|total|webOnline|gameOnline)\}/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    out += escapeRe(body.slice(last, m.index)) + "\\d{1,4}";
+    last = m.index + m[0].length;
+  }
+  out += escapeRe(body.slice(last));
+  try { return new RegExp(out + "$"); } catch { return null; }
+}
+
+/**
+ * 剥离"我们自己加的后缀"，返回使用者手写的正文（幂等 + 自愈）。
+ * 只在分隔符之后（或整段就是后缀）才剥 —— 避免把使用者正文里凑巧同形的句子吃掉。
+ */
+export function stripSuffix(text, template, separator = DEFAULT_SEPARATOR) {
+  const re = suffixPattern(template);
+  let out = String(text == null ? "" : text);
+  if (!re) return out.trim();
+  for (let i = 0; i < SUFFIX_MAX_STRIP; i++) {
+    const m = re.exec(out);
+    if (!m) break;
+    const before = out.slice(0, m.index);
+    const hasSep = /[·|｜\-–—]\s*$/.test(before) || /\s$/.test(before);
+    if (m.index > 0 && !hasSep) break;
+    out = before.replace(/[\s·|｜\-–—]+$/, "");
+  }
+  return out.trim();
+}
+
+/** 合成「正文 + 分隔符 + 后缀」；先保证后缀完整，空间不够时截断正文（按码点） */
+export function composeStatus(base, suffixText, { separator = DEFAULT_SEPARATOR, maxLen = MAX_DESC_LEN } = {}) {
+  const suffix = String(suffixText == null ? "" : suffixText).trim();
+  const body = String(base == null ? "" : base).trim();
+  if (!suffix) return cut(body, maxLen);
+  if (!body) return cut(suffix, maxLen);
+  const sep = String(separator == null ? DEFAULT_SEPARATOR : separator);
+  const room = maxLen - Array.from(suffix).length - Array.from(sep).length;
+  if (room <= 0) return cut(suffix, maxLen);
+  return cut(body, room) + sep + suffix;
+}
 
 export class DynamicStatusSync {
-  /**
-   * @param ctx 全局 server-context（需 api/storage/friendState）
-   * @param opts.log 日志函数
-   */
-  constructor(ctx, { log } = {}) {
+  constructor(ctx, { log, now } = {}) {
     this.ctx = ctx;
     this.log = log || (() => {});
-    this._lastSent = '';   // 最近一次成功提交的文本（进程内去重）
-    this._lastAt = 0;      // 最近一次提交时间戳（冷却窗口）
+    this._now = typeof now === "function" ? now : () => Date.now();
+    this._lastSent = "";
+    this._lastAt = 0;
+    this._foreignText = "";
+    this._foreignAt = 0;
+    this._foreignCount = 0;
+    this._backoffUntil = 0;
   }
 
-  /** 读配置（config 表 JSON；缺失/损坏回退默认关闭） */
   get config() {
     const raw = this.ctx.storage.getConfig(CONFIG_KEY);
-    if (!raw) return { enabled: false, template: DEFAULT_TEMPLATE };
+    const off = { enabled: false, mode: "fixed", template: DEFAULT_TEMPLATE, separator: DEFAULT_SEPARATOR };
+    if (!raw) return off;
     try {
       const c = JSON.parse(raw);
       return {
         enabled: !!c.enabled,
-        template: (typeof c.template === 'string' && c.template.trim()) ? c.template : DEFAULT_TEMPLATE,
+        mode: c.mode === "suffix" ? "suffix" : "fixed",
+        template: (typeof c.template === "string" && c.template.trim()) ? c.template : DEFAULT_TEMPLATE,
+        separator: (typeof c.separator === "string" && c.separator.length) ? c.separator : DEFAULT_SEPARATOR,
       };
-    } catch {
-      return { enabled: false, template: DEFAULT_TEMPLATE };
-    }
+    } catch { return off; }
   }
 
-  /** 写配置（局部合并），返回合并后的完整配置 */
   setConfig(patch = {}) {
     const next = { ...this.config, ...patch };
     next.enabled = !!next.enabled;
-    next.template = (typeof next.template === 'string' && next.template.trim()) ? next.template : DEFAULT_TEMPLATE;
+    next.mode = next.mode === "suffix" ? "suffix" : "fixed";
+    next.template = (typeof next.template === "string" && next.template.trim()) ? next.template : DEFAULT_TEMPLATE;
+    next.separator = (typeof next.separator === "string" && next.separator.length) ? next.separator : DEFAULT_SEPARATOR;
     this.ctx.storage.setConfig(CONFIG_KEY, JSON.stringify(next));
     return next;
   }
 
-  /** 从 friends 表算三个计数（游戏内 / 网页 / 总）；失败返回 null，调用方回退到单值 ✓ */
   _counts() {
     try {
       const r = this.ctx.storage.query(
@@ -66,67 +133,93 @@ export class DynamicStatusSync {
     } catch { return null; }
   }
 
-  /** 渲染模板：{online} 与 {total} 均为总在线（游戏内+网页）；截断按 Unicode 码点（review #166 💡：UTF-16 slice 会把 emoji 切半成替换符） */
   render(text, online, counts = null) {
-    // 2026-09-22 用户要求：在线数拆成三个可分别引用（自己组合文案）——
-    //   {online} 保留为**兼容别名**（不再出现在界面/文档里）：老模板写了它仍能渲染，等同 {total} ✓；
-    //   {total}=游戏内+网页、{webOnline}=网页/App、{gameOnline}=游戏内（只留英文 ✓）。
     const c = counts || {};
     const total = Number.isFinite(c.total) ? c.total : online;
     const web = Number.isFinite(c.web) ? c.web : 0;
     const game = Number.isFinite(c.game) ? c.game : total;
     let rendered = String(text);
-    // 用户 2026-09-22：占位符**只留英文**（中文别名去掉）
-    for (const [k, v] of [['{online}', total], ['{total}', total],
-      ['{webOnline}', web], ['{gameOnline}', game]]) {
+    for (const [k, v] of [["{online}", total], ["{total}", total],
+      ["{webOnline}", web], ["{gameOnline}", game]]) {
       rendered = rendered.replaceAll(k, String(v));
     }
-    const chars = Array.from(rendered);
-    return chars.length <= MAX_DESC_LEN ? rendered : chars.slice(0, MAX_DESC_LEN).join('');
+    return cut(rendered, MAX_DESC_LEN);
   }
 
-  /**
-   * 主入口：核对在线数 → 渲染 → 与远端比对 → 冷却闸 → PUT。
-   * @param force true 时绕过开关/冷却（set_dynamic_status 保存后立即生效用）
-   * @returns 执行摘要 { action: 'synced'|'skipped', reason?, statusDescription?, online? }
-   */
+  /** 供其它写入方（presence-status）复用：产出与本引擎一致的整段文字 ⇒ 不互相抹除 */
+  composeForOther(baseText) {
+    const cfg = this.config;
+    const raw = String(baseText == null ? "" : baseText);
+    if (!cfg.enabled || cfg.mode !== "suffix") return raw;
+    const online = this.ctx.friendState ? this.ctx.friendState.getOnlineCount() : null;
+    const counts = this._counts();
+    if (online == null && !counts) return raw;
+    const suffix = this.render(cfg.template, online == null ? 0 : online, counts);
+    return composeStatus(stripSuffix(raw, cfg.template, cfg.separator), suffix, { separator: cfg.separator });
+  }
+
+  _targetFor(cfg, remote, online, counts) {
+    if (cfg.mode !== "suffix") return { target: this.render(cfg.template, online, counts), base: null };
+    const base = stripSuffix(remote, cfg.template, cfg.separator);
+    const suffix = this.render(cfg.template, online, counts);
+    return { target: composeStatus(base, suffix, { separator: cfg.separator }), base };
+  }
+
   async sync(force = false) {
     const cfg = this.config;
-    if (!cfg.enabled && !force) return { action: 'skipped', reason: 'disabled' };
-
+    if (!cfg.enabled && !force) return { action: "skipped", reason: "disabled" };
     const online = this.ctx.friendState ? this.ctx.friendState.getOnlineCount() : null;
-    if (online == null) return { action: 'skipped', reason: 'no-friend-state' };
+    if (online == null) return { action: "skipped", reason: "no-friend-state" };
+    const counts = this._counts();
+    const now = this._now();
 
-    const counts = this._counts();   // {total, web, game}；查库失败则回退到 online 单值 ✓
-    const text = this.render(cfg.template, online, counts);
-
-    // 冷却闸前置（review #166 🟡）：冷却窗口内的事件不再各发一次 GET /auth/user，
-    // 避免高峰时段事件密集时瞬时多请求触发 429；unchanged 比对改用上次发送缓存。
-    const now = Date.now();
     if (!force && now - this._lastAt < MIN_INTERVAL_MS) {
-      return { action: 'skipped', reason: 'cooldown', nextInMs: MIN_INTERVAL_MS - (now - this._lastAt) };
+      return { action: "skipped", reason: "cooldown", nextInMs: MIN_INTERVAL_MS - (now - this._lastAt) };
+    }
+    if (!force && now < this._backoffUntil) {
+      return { action: "skipped", reason: "writer-conflict-backoff", nextInMs: this._backoffUntil - now };
     }
 
     const me = await this._fetchMe();
-    if (!me) return { action: 'skipped', reason: 'no-me' };
+    if (!me) return { action: "skipped", reason: "no-me" };
+    const remote = typeof me.statusDescription === "string" ? me.statusDescription : "";
+    const { target } = this._targetFor(cfg, remote, online, counts);
 
-    if (!force && text === (me.statusDescription || '')) {
-      this._lastAt = now; // 远端已与目标一致，同样进入冷却（防窗口内重复 GET）
-      this._lastSent = text;
-      return { action: 'skipped', reason: 'unchanged' };
+    if (cfg.mode === "suffix" && this._lastSent && remote !== this._lastSent && remote !== target) {
+      if (this._foreignText !== remote) {
+        this._foreignText = remote;
+        this._foreignAt = now;
+        this._foreignCount += 1;
+      }
+      if (this._foreignCount >= CONFLICT_LIMIT) {
+        this._backoffUntil = now + CONFLICT_BACKOFF_MS;
+        this._foreignCount = 0;
+        this.log("[状态] 同一段状态文字被反复改写（" + CONFLICT_LIMIT + " 次），退避 10 分钟（可能有其它写入方，或你正在手改）");
+        return { action: "skipped", reason: "writer-conflict", nextInMs: CONFLICT_BACKOFF_MS };
+      }
+      if (!force && now - this._foreignAt < GRACE_MS) {
+        return { action: "skipped", reason: "grace", statusDescription: target, online };
+      }
     }
 
-    const ok = await this._putStatus(me.id, text, me.status);
+    if (!force && target === remote) {
+      this._lastAt = now;
+      this._lastSent = target;
+      return { action: "skipped", reason: "unchanged" };
+    }
+
+    const ok = await this._putStatus(me.id, target, me.status);
     if (ok) {
       this._lastAt = now;
-      this._lastSent = text;
-      this.log(`[状态] 动态状态已更新（在线 ${online} 人）: ${text}`);
-      return { action: 'synced', statusDescription: text, online };
+      this._lastSent = target;
+      this._foreignCount = 0;
+      this._foreignText = target;
+      this.log("[状态] 动态状态已更新（在线 " + online + " 人）: " + target);
+      return { action: "synced", statusDescription: target, online, mode: cfg.mode };
     }
-    return { action: 'failed', reason: 'put-failed', detail: this._lastPutError || '', statusDescription: text, online };
+    return { action: "failed", reason: "put-failed", detail: this._lastPutError || "", statusDescription: target, online };
   }
 
-  /** 经 rateLimiter 串行化调用 API（review #166 🟡：与仓库其余调用同模式；无限流器时直连降级） */
   async _api(method, path, body) {
     const req = () => this.ctx.api._request(method, path, body);
     if (this.ctx.rateLimiter) return this.ctx.rateLimiter.execute(req);
@@ -135,23 +228,19 @@ export class DynamicStatusSync {
 
   async _fetchMe() {
     try {
-      const r = await this._api('GET', '/auth/user');
+      const r = await this._api("GET", "/auth/user");
       return (r.status === 200 && r.data) ? r.data : null;
     } catch { return null; }
   }
 
-  /**
-   * 更新自己的自定义状态：**PUT /users/{userId}**（VRChat 现行端点；容器内实测
-   * PUT /auth/user 返回 405 Method Not Allowed——该路径已不接受更新方法）。
-   * 只改 statusDescription；保留原 status 种类，不改变在线形态。失败原因透传 _lastPutError。
-   */
+  /** PUT /users/{userId}（VRChat 现行端点；PUT /auth/user 实测 405）。只改 statusDescription。 */
   async _putStatus(selfId, desc, keepStatus) {
     try {
-      if (!selfId) { this._lastPutError = 'no self id'; return false; }
+      if (!selfId) { this._lastPutError = "no self id"; return false; }
       const body = { statusDescription: desc };
       if (keepStatus) body.status = keepStatus;
-      const r = await this._api('PUT', `/users/${encodeURIComponent(selfId)}`, body);
-      if (r.status !== 200) this._lastPutError = `HTTP ${r.status}: ${JSON.stringify(r.data || {}).slice(0, 200)}`;
+      const r = await this._api("PUT", "/users/" + encodeURIComponent(selfId), body);
+      if (r.status !== 200) this._lastPutError = "HTTP " + r.status + ": " + JSON.stringify(r.data || {}).slice(0, 200);
       return r.status === 200;
     } catch (e) {
       this._lastPutError = String(e.message || e).slice(0, 200);

@@ -1616,14 +1616,18 @@ export function registerDashboardServices(loader, ctx) {
     };
   });
   loader.serviceOwners.set('dashboard.dynamicStatusGet', 'core');
-  loader.services.set('dashboard.dynamicStatusSet', ({ enabled, template, syncNow = true } = {}) => {
+  loader.services.set('dashboard.dynamicStatusSet', ({ enabled, mode, template, separator, syncNow = true } = {}) => {
     const sync = ctx.statusSync;
     if (!sync) return { ok: false, error: 'status-sync 未初始化' };
     if (enabled !== undefined && typeof enabled !== 'boolean') return { ok: false, error: 'enabled 必须是 boolean' };
     if (template !== undefined && typeof template !== 'string') return { ok: false, error: 'template 必须是 string' };
+    if (mode !== undefined && mode !== 'fixed' && mode !== 'suffix') return { ok: false, error: 'mode 必须是 fixed / suffix' };
+    if (separator !== undefined && typeof separator !== 'string') return { ok: false, error: 'separator 必须是 string' };
     const config = sync.setConfig({
       ...(enabled !== undefined ? { enabled } : {}),
+      ...(mode !== undefined ? { mode } : {}),
       ...(template !== undefined ? { template } : {}),
+      ...(separator !== undefined ? { separator } : {}),
     });
     const syncResult = syncNow ? await_handle_sync(sync, config.enabled) : { action: 'skipped', reason: 'not-sync-now' };
     return { ok: true, config, syncResult };

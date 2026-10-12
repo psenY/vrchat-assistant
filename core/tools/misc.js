@@ -686,18 +686,20 @@ export const tools = [
   },
   {
     "name": "get_dynamic_status",
-    "description": "[query] 查询动态状态（按在线好友数量自动更新自定义状态）引擎配置与运行状态：enabled（开关,默认关闭）、template（文本模板,{total}（总在线）/ {webOnline}（网页/App 在线）/ {gameOnline}（游戏内在线）占位符替换为对应计数（旧模板的 {online} 仍兼容，等同 {total}））、onlineNow（当前在线好友数）、lastSent/lastAt（最近一次实际提交的文本与时间）。",
+    "description": "[query] 查询动态状态（按在线好友数量自动更新自定义状态）引擎配置与运行状态：enabled（开关,默认关闭）、mode（fixed=整段按模板覆盖 / suffix=保留使用者手写的正文、只在结尾维护后缀）、template（fixed 下是整段模板; suffix 下是后缀模板,{total}（总在线）/ {webOnline}（网页/App 在线）/ {gameOnline}（游戏内在线）占位符替换为对应计数（旧模板的 {online} 仍兼容，等同 {total}））、separator（suffix 模式的分隔符,默认「 · 」）、onlineNow（当前在线好友数）、lastSent/lastAt（最近一次实际提交的文本与时间）。",
     "inputSchema": { "type": "object", "properties": {} },
     handler: async (args) => handleGetDynamicStatus(args)
   },
   {
     "name": "set_dynamic_status",
-    "description": "[manage] 设置动态状态：enabled 开关（默认关闭——开启后按在线好友数量自动更新自己的自定义状态 statusDescription）、template 文本模板（{online}（沿用 VRC_MONITOR_ONLINE_INCLUDE_WEB 口径）/ {total}|{总在线}/ {webOnline}|{web在线}/ {gameOnline}|{非web在线} 占位符替换为对应计数,如 '在线 {online} 人',最长 64 字符）、syncNow 保存后是否立即强制同步一次（默认 true,绕过冷却）。注意：频繁变更状态文本受 VRChat 接口频率限制,引擎内置 65s 最小冷却间隔；status 种类（active/join me 等）保持不变,只更新自定义文本。⚠️ 与插件工具 set_presence_status（按自己是否在游戏内自动切换状态文字）写同一个 statusDescription，两者互不知情：同时启用时挂机期间好友上下线会互相覆盖，建议只启用其一。",
+    "description": "[manage] 设置动态状态：enabled 开关（默认关闭）、mode（fixed=整段覆盖,默认; suffix=**保留你自己写的正文,只在结尾维护后缀** —— 你在 VRChat 里手打「打机中」会变成「打机中 · 在线 5 人」,你改文字后不覆盖、只在结尾补/更新那截）、template（fixed: 整段模板; suffix: 后缀模板；占位符 {total}|{总在线} / {webOnline}|{web在线} / {gameOnline}|{非web在线},旧的 {online} 仍兼容等同 {total}）、separator（suffix 模式分隔符,默认 ' · '）、syncNow 保存后是否立即强制同步一次（默认 true,绕过冷却）。上限 64 字符:suffix 模式超长时**先截断正文、保证计数完整**。频繁变更受 VRChat 限频,引擎内置 65s 冷却 + 文本无变化不提交 + 写回不自触发（unchanged 早退）。⚠️ 与插件 set_presence_status（按是否在游戏内切换状态文字）写同一个 statusDescription:fixed 模式两者会互相覆盖,建议只启用其一;suffix 模式下两者可共存（插件写入后本引擎补/更新后缀,插件也容忍后缀,不会反复抹除）。",
     "inputSchema": {
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean", "description": "开关（默认关闭）" },
-        "template": { "type": "string", "description": "文本模板,{online} 占位符替换为在线好友数" },
+        "mode": { "type": "string", "enum": ["fixed", "suffix"], "description": "fixed=整段覆盖（默认）；suffix=保留使用者手写正文、只在结尾维护后缀" },
+        "template": { "type": "string", "description": "文本模板（suffix 模式下为后缀模板），{total}/{webOnline}/{gameOnline} 占位符替换为对应计数" },
+        "separator": { "type": "string", "description": "suffix 模式的正文与后缀分隔符（默认 ' · '）" },
         "syncNow": { "type": "boolean", "description": "保存后立即强制同步一次(默认 true)" }
       }
     },

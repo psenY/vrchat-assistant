@@ -188,6 +188,16 @@ export default function register(api) {
    *   出游戏 → 先捕获当前文案为 savedText（= 上次下线时的状态），再写 idleTemplate；
    *   进游戏 → 把 savedText 写回去。
    */
+  /**
+   * 与核心动态状态引擎共存用（2026-10-12）：它会把我们写的文案变成「挂机中 · 在线 5 人」，
+   * 若按整串相等比较，会被误判成“使用者手写的文案” ⇒ 误捕获挂机文案 / 每轮重复写入。
+   * 判据：相等，或者以我们写的文案开头（核心只会在尾部追加）。
+   */
+  function isOurText(current, expected) {
+    if (!current || !expected) return false;
+    return current === expected || current.startsWith(expected);
+  }
+
   async function applyStatus({ manual = false } = {}) {
     const config = readConfig();
     if (!config.enabled) return { action: 'skipped', reason: 'disabled' };
@@ -239,7 +249,7 @@ export default function register(api) {
       //   1) 当前文案就是挂机文案（说明本来就是我们写的）；
       //   2) 当前文案等于我们自己上一次写入的文案（appliedText，跨重启已从表恢复）
       //      —— 否则会把"上一版的挂机文案"误当成使用者的状态，回游戏时又给恢复出来。
-      if (decision.action === 'idle' && current && current !== config.idleTemplate && current !== appliedText) {
+      if (decision.action === 'idle' && current && !isOurText(current, config.idleTemplate) && !isOurText(current, appliedText)) {
         writeRaw('savedText', current);
       }
 
@@ -248,7 +258,7 @@ export default function register(api) {
       // **保持不动**，并把它采纳为新的基线（savedText）——否则首轮启用（人已在游戏内）
       // 会悄悄抹掉使用者的文案，且此后永不恢复。见 SKILL.md「没有可恢复值时保护现状」。
       if (decision.action === 'restore' && decision.text === ''
-        && current && current !== config.idleTemplate && current !== appliedText) {
+        && current && !isOurText(current, config.idleTemplate) && !isOurText(current, appliedText)) {
         writeRaw('savedText', current);
         lastState = state;
         writeRaw('lastState', state);
@@ -256,7 +266,7 @@ export default function register(api) {
         return { action: 'skipped', reason: 'keep-current-text', state, statusDescription: current };
       }
 
-      if (current === decision.text) {
+      if (current === decision.text || isOurText(current, decision.text)) {
         // 目标文案已在位（如使用者手动设过同样文案）→ 只记基线，不重复提交
         appliedText = decision.text;
         lastState = state;
