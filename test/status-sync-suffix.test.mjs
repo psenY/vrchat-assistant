@@ -98,12 +98,12 @@ test('抢写自保：同一段文字被反复改写 ⇒ 退避且不再写', asy
   const s = new DynamicStatusSync(ctx, { now: () => now });
   await s.sync();
   const reasons = [];
-  for (const t of ['B', 'C', 'D']) {
+  for (const t of ['B', 'C', 'D', 'E', 'F']) {   // CONFLICT_LIMIT=5
     state.desc = t;
     now += 200_000;
     reasons.push((await s.sync()).reason);
   }
-  assert.ok(reasons.includes('writer-conflict'), '第 3 次应触发退避: ' + reasons.join(','));
+  assert.ok(reasons.includes('writer-conflict'), '第 5 次应触发退避: ' + reasons.join(','));
   now += 200_000;
   assert.equal((await s.sync()).reason, 'writer-conflict-backoff');
 });
@@ -132,4 +132,76 @@ test('默认关闭时 sync 不动手', async () => {
   const s = new DynamicStatusSync(ctx, { now: () => 0 });
   assert.equal((await s.sync()).reason, 'disabled');
   assert.equal(state.puts.length, 0);
+});
+
+test('静默期到点会自己叫醒一次（用户报「要等在线人数变更才会加后缀」的回归）', async () => {
+  let now = 2_000_000;
+  const pending = { fn: null, ms: 0 };
+  const timers = {
+    setTimeout: (fn, ms) => { pending.fn = fn; pending.ms = ms; return { unref() {} }; },
+    clearTimeout: () => { pending.fn = null; },
+  };
+  const { ctx, state } = makeCtx({ desc: 'A', cfg: cfgOf() });
+  const s = new DynamicStatusSync(ctx, { now: () => now, timers });
+  await s.sync();                        // 写入 'A · 在线 5 人'
+  state.desc = '打机中';                  // 她手改状态
+  now += 70_000;
+  const r = await s.sync();              // 第一次：记下「刚被改过」⇒ grace，并排一次重试
+  assert.equal(r.reason, 'grace');
+  assert.ok(r.retryInMs >= 1_000, '应返回 retryInMs');
+  assert.equal(typeof pending.fn, 'function', '应排了一次自动重试');
+  assert.equal(state.puts.length, 1, '静默期内不写');
+  now += pending.ms;
+  await pending.fn();
+  await new Promise((r2) => setImmediate(r2));
+  assert.equal(state.puts.length, 2, '重试到点应补上后缀');
+  assert.equal(state.desc, '打机中 · 在线 5 人');
+  assert.equal(s._retryTimer, null, '重试跑完要清掉定时器句柄');
+});
+
+test('静默期内再次改动 ⇒ 重试顺延（不在她还在打字时插进去）', async () => {
+  let now = 3_000_000;
+  const pending = { fn: null, ms: 0, cleared: 0 };
+  const timers = {
+    setTimeout: (fn, ms) => { pending.fn = fn; pending.ms = ms; return { unref() {} }; },
+    clearTimeout: () => { pending.cleared += 1; pending.fn = null; },
+  };
+  const { ctx, state } = makeCtx({ desc: 'A', cfg: cfgOf() });
+  const s = new DynamicStatusSync(ctx, { now: () => now, timers });
+  await s.sync();
+  state.desc = '打机';
+  now += 70_000;
+  await s.sync();
+  const deadline1 = now + pending.ms;   // 第一次排的重试到点时刻
+  state.desc = '打机中';                  // 她继续打字
+  now += 30_000;
+  await s.sync();
+  assert.ok(pending.cleared >= 1, '旧的重试要取消');
+  assert.ok(now + pending.ms > deadline1, '重试到点时刻应顺延');
+  assert.equal(state.puts.length, 1, '两次 grace 都没写');
+  now += pending.ms;
+  await pending.fn();
+  await new Promise((r2) => setImmediate(r2));
+  assert.equal(state.desc, '打机中 · 在线 5 人');
+});
+test('她连续改 3 次状态不会被退避（CONFLICT_LIMIT 3 提到 5 的动机）', async () => {
+  let now = 4_000_000;
+  const pending = { fn: null, ms: 0 };
+  const timers = {
+    setTimeout: (fn, ms) => { pending.fn = fn; pending.ms = ms; return { unref() {} }; },
+    clearTimeout: () => { pending.fn = null; },
+  };
+  const { ctx, state } = makeCtx({ desc: 'A', cfg: cfgOf() });
+  const s = new DynamicStatusSync(ctx, { now: () => now, timers });
+  await s.sync();
+  const reasons = [];
+  const steps = [70_000, 30_000, 30_000];
+  const texts = ['打', '打机', '打机中'];
+  for (let i = 0; i < texts.length; i += 1) {
+    state.desc = texts[i];
+    now += steps[i];
+    reasons.push((await s.sync()).reason);
+  }
+  assert.deepEqual(reasons, ['grace', 'grace', 'grace']);
+  assert.equal(s._backoffUntil, 0, '不该退避');
 });

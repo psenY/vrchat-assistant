@@ -24,7 +24,8 @@ const DEFAULT_SEPARATOR = " · ";
 const MIN_INTERVAL_MS = 65_000;
 const MAX_DESC_LEN = 64;
 const GRACE_MS = 120_000;
-const CONFLICT_LIMIT = 3;
+// 5 次**不同的**「别人改过的文字」才退避；她自己改状态也会被算进来，3 太容易误触发
+const CONFLICT_LIMIT = 5;
 const CONFLICT_BACKOFF_MS = 600_000;
 const SUFFIX_MAX_STRIP = 5;
 
@@ -84,16 +85,42 @@ export function composeStatus(base, suffixText, { separator = DEFAULT_SEPARATOR,
 }
 
 export class DynamicStatusSync {
-  constructor(ctx, { log, now } = {}) {
+  constructor(ctx, { log, now, timers } = {}) {
     this.ctx = ctx;
     this.log = log || (() => {});
     this._now = typeof now === "function" ? now : () => Date.now();
+    // 定时器可注入（测试用；默认走全局 setTimeout/clearTimeout）
+    this._timers = timers || {
+      setTimeout: (fn, ms) => setTimeout(fn, ms),
+      clearTimeout: (h) => clearTimeout(h),
+    };
+    this._retryTimer = null;
     this._lastSent = "";
     this._lastAt = 0;
     this._foreignText = "";
     this._foreignAt = 0;
     this._foreignCount = 0;
     this._backoffUntil = 0;
+  }
+
+  /**
+   * 静默期到点后的自动重试（2026-10-12，用户报「我手动设置状态后，要下次在线人数变更他才会加后缀」）。
+   * 原来「记下别人刚改过 ⇒ 返回 grace」之后**没有任何东西会再叫醒引擎**，只能等 5 分钟定时器，
+   * 或者恰好有好友上下线 ⇒ 体感就是"必须等在线人数变更"。现在当场排一次一次性重试。
+   */
+  _scheduleRetry(ms) {
+    if (this._retryTimer != null) this._timers.clearTimeout(this._retryTimer);
+    const wait = Math.max(1000, Math.round(ms));
+    this._retryTimer = this._timers.setTimeout(() => {
+      this._retryTimer = null;
+      Promise.resolve(this.sync()).catch(() => {});
+    }, wait);
+    if (this._retryTimer && typeof this._retryTimer.unref === "function") this._retryTimer.unref();
+    return wait;
+  }
+
+  _clearRetry() {
+    if (this._retryTimer != null) { this._timers.clearTimeout(this._retryTimer); this._retryTimer = null; }
   }
 
   get config() {
@@ -198,7 +225,9 @@ export class DynamicStatusSync {
         return { action: "skipped", reason: "writer-conflict", nextInMs: CONFLICT_BACKOFF_MS };
       }
       if (!force && now - this._foreignAt < GRACE_MS) {
-        return { action: "skipped", reason: "grace", statusDescription: target, online };
+        // 静默期到点后**自己叫醒一次**，不再干等 5 分钟定时器 / 好友上下线事件
+        const retryInMs = this._scheduleRetry(this._foreignAt + GRACE_MS - now + 5_000);
+        return { action: "skipped", reason: "grace", statusDescription: target, online, retryInMs };
       }
     }
 
@@ -213,6 +242,7 @@ export class DynamicStatusSync {
       this._lastAt = now;
       this._lastSent = target;
       this._foreignCount = 0;
+      this._clearRetry();
       this._foreignText = target;
       this.log("[状态] 动态状态已更新（在线 " + online + " 人）: " + target);
       return { action: "synced", statusDescription: target, online, mode: cfg.mode };

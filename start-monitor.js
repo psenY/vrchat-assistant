@@ -951,6 +951,13 @@ setOpsLogSink((kind, level, message) => {
         if (event.type === 'friend-online' || event.type === 'friend-offline') {
           ctx.statusSync.sync().catch(() => {});
         }
+        // 动态状态（2026-10-12；用户报「我手动设置状态后，要下次在线人数变更他才会加后缀」）：
+        // 自己改状态会推 user-update / user-location ⇒ 当场核对一次：引擎记下「刚被改过」，
+        // 并**自动排一次静默期结束后的重试**（不再干等 5 分钟定时器或好友上下线事件）。
+        // 我们自己的写入也会回来自触发 ⇒ remote === _lastSent ⇒ unchanged 早退，不会成环。
+        if (event.type === 'user-update' || event.type === 'user-location') {
+          ctx.statusSync.sync().catch(() => {});
+        }
 
         // 核心关注好友活动日志（从内存缓存读取，不查 DB）
         if (ctx.watchlist.dirty) refreshWatchlistCache();
