@@ -1631,7 +1631,9 @@ export function registerDashboardServices(loader, ctx) {
       ...(template !== undefined ? { template } : {}),
       ...(separator !== undefined ? { separator } : {}),
     });
-    const syncResult = syncNow ? await_handle_sync(sync, config.enabled) : { action: 'skipped', reason: 'not-sync-now' };
+    // ⚠️ 这里必须 await：await_handle_sync 是 async 函数，漏掉 await 会把 Promise 直接放进响应
+    // （JSON 序列化成 {}）⇒ 面板拿不到 syncResult（action/reason/statusDescription）。
+    const syncResult = syncNow ? await await_handle_sync(sync, config.enabled) : { action: 'skipped', reason: 'not-sync-now' };
     return { ok: true, config, syncResult };
   });
   loader.serviceOwners.set('dashboard.dynamicStatusSet', 'core');
