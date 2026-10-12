@@ -32,15 +32,19 @@ export function handleGetDynamicStatus() {
   };
 }
 
-/** 设置动态状态（开关/模板），可选立即生效（绕过冷却强制同步一次） */
-export async function handleSetDynamicStatus({ enabled, template, syncNow = true } = {}) {
+/** 设置动态状态（开关/模式/模板/分隔符），可选立即生效（绕过冷却强制同步一次） */
+export async function handleSetDynamicStatus({ enabled, mode, template, separator, syncNow = true } = {}) {
   const sync = ctx.statusSync;
   if (!sync) throw new Error('动态状态引擎未初始化（服务版本过旧或启动异常）');
   if (enabled !== undefined && typeof enabled !== 'boolean') throw new Error('enabled 必须是 boolean');
+  if (mode !== undefined && mode !== 'fixed' && mode !== 'suffix') throw new Error('mode 必须是 fixed / suffix');
   if (template !== undefined && typeof template !== 'string') throw new Error('template 必须是 string');
+  if (separator !== undefined && typeof separator !== 'string') throw new Error('separator 必须是 string');
   const cfg = sync.setConfig({
     ...(enabled !== undefined ? { enabled } : {}),
+    ...(mode !== undefined ? { mode } : {}),
     ...(template !== undefined ? { template } : {}),
+    ...(separator !== undefined ? { separator } : {}),
   });
   const result = syncNow ? await sync.sync(cfg.enabled) : { action: 'skipped', reason: 'not-sync-now' };
   return { ok: true, config: cfg, syncResult: result };

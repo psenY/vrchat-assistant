@@ -1616,7 +1616,9 @@ export function registerDashboardServices(loader, ctx) {
     };
   });
   loader.serviceOwners.set('dashboard.dynamicStatusGet', 'core');
-  loader.services.set('dashboard.dynamicStatusSet', ({ enabled, mode, template, separator, syncNow = true } = {}) => {
+  // ⚠️ 这里必须是 async：await_handle_sync 返回 Promise，同步 service 会把它原样塞进响应
+  // （JSON 序列化成 {}）⇒ 面板永远拿不到 syncResult（action/reason），「保存并立即同步」形同没同步。
+  loader.services.set('dashboard.dynamicStatusSet', async ({ enabled, mode, template, separator, syncNow = true } = {}) => {
     const sync = ctx.statusSync;
     if (!sync) return { ok: false, error: 'status-sync 未初始化' };
     if (enabled !== undefined && typeof enabled !== 'boolean') return { ok: false, error: 'enabled 必须是 boolean' };
