@@ -26,8 +26,12 @@ const KINDS = [
   { v: 'auth', l: '认证' },
   { v: 'ws', l: '连接' },
   { v: 'ops', l: '运维' },
+  { v: 'api', l: '接口' },
+  { v: 'ext', l: '外部服务' },
 ];
-const KIND_LABEL = { auth: '认证', ws: '连接', ops: '运维' };
+// 覆盖 core/ops-log.js 里全部五类（auth/ws/ops/api/ext）—— 2026-10-13：原先只映射三类，
+// api/ext 的行没有中文类别（模板回落成英文 api/ext 显示），顶部也没有对应筛选项。
+const KIND_LABEL = { auth: '认证', ws: '连接', ops: '运维', api: '接口', ext: '外部服务' };
 const LEVELS_FILTER = [
   { v: 'all', l: '全部' },
   { v: 'warn', l: '警告+' },
@@ -114,11 +118,11 @@ function onQInput() {
 // 时间统一走 utils（本地时区），与动态页一致——此前直接切 ISO 字符串显示的是 UTC（用户反馈）
 const shown = computed(() => items.value || []);
 
-// 顶栏说明随来源切换：数据库=认证/连接/运维打点；文件=monitor.log 完整日志
+// 顶栏说明随来源切换：数据库=五类生命周期打点；文件=monitor.log 完整日志
 const lvNote = computed(() =>
   src.value === 'file'
     ? 'monitor.log 完整文件日志 · 级别 / 标签 / 关键词筛选'
-    : '认证 / 连接 / 运维生命周期打点 · 保留最近 500 条'
+    : '认证 / 连接 / 运维 / 接口 / 外部服务生命周期打点 · 保留最近 500 条'
 );
 
 onMounted(() => {

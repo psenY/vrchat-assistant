@@ -1003,3 +1003,8 @@ status；`user-update + trust_level` 也是 status ⇒ `trustLevel` 只认 `frie
 - 设置页「动态状态」卡片新增 **模式**（整段覆盖 / 保留我写的正文、只在结尾加后缀）与 **分隔符** 两个控件；模板输入框在 suffix 模式下标注为「后缀文本模板」，并说明超长时先截正文保计数。
 - 后端：`POST /api/dashboard/dynamic-status` 透传 `mode` / `separator` 到 `dashboard.dynamicStatusSet`（校验：mode ∈ fixed|suffix）。
 - 现象对照：旧实现下使用者在 VRChat 里手输的状态会被整段覆盖 ⇒ 新模式的动机；详见 `docs/history/2026-10.md` 同日条目。
+## 2026-10-13 服务日志页补齐「接口 / 外部服务」两个类别
+
+- **现象**：`ops_log` 表的 kind 由 `core/ops-log.js` 定义为五类（auth / ws / ops / api / ext），而日志页「数据库」来源只映射并提供了 认证 / 连接 / 运维 三个筛选项 ⇒ `api`（VRChat REST 调用失败/超时，生产实测 138 条）与 `ext`（外部服务失败/降级）的行**没有中文类别**，模板回落到显示英文 `api`，顶部也没有对应筛选。
+- **修法**：`ui/src/views/LogsView.vue` 的 `KINDS` 增加「接口 / 外部服务」，`KIND_LABEL` 补齐五类，顶栏说明同步为「认证 / 连接 / 运维 / 接口 / 外部服务生命周期打点」；**后端无需改动** —— `get_ops_log` 与 `storage.getOpsLog` 本就按 `kind` 原样 `WHERE kind = $kind` 过滤。
+- **触发**：用户看到动态流一条「未知事件」（event id 35494，VRChat 推来一帧缺 `type` 的消息 ⇒ `ws-manager` 记为 `unknown`、载荷空对象）后追问，顺带核对日志页发现上述缺口。
