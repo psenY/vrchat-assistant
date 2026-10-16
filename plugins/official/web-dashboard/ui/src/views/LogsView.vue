@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { get } from '../api.js';
+import { LOG_KINDS, LOG_KIND_LABEL } from '../constants/log-kinds.js';
 import { time, date } from '../utils.js';
 import { toast } from '../toast.js';
 
@@ -21,17 +22,8 @@ const SOURCES = [
   { v: 'db', l: '数据库' },
   { v: 'file', l: '文件' },
 ];
-const KINDS = [
-  { v: 'all', l: '全部' },
-  { v: 'auth', l: '认证' },
-  { v: 'ws', l: '连接' },
-  { v: 'ops', l: '运维' },
-  { v: 'api', l: '接口' },
-  { v: 'ext', l: '外部服务' },
-];
-// 覆盖 core/ops-log.js 里全部五类（auth/ws/ops/api/ext）—— 2026-10-13：原先只映射三类，
-// api/ext 的行没有中文类别（模板回落成英文 api/ext 显示），顶部也没有对应筛选项。
-const KIND_LABEL = { auth: '认证', ws: '连接', ops: '运维', api: '接口', ext: '外部服务' };
+const KINDS = LOG_KINDS;
+const KIND_LABEL = LOG_KIND_LABEL;
 const LEVELS_FILTER = [
   { v: 'all', l: '全部' },
   { v: 'warn', l: '警告+' },
