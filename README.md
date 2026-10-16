@@ -38,6 +38,8 @@
 
 ## 文档导航
 
+> 本部署（fork）与上游**有意不同**之处见 [docs/LOCAL-NOTES.md](docs/LOCAL-NOTES.md)（静默重连默认值、历史残留字段等）。
+
 > 本项目所有文档面向 **AI Agent 与开发者**。读完本 README 后，按需阅读：
 
 | 文档 | 内容 | 何时读 |
