@@ -45,6 +45,18 @@ function cut(s, n) {
 
 function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
+/** VRChat 会把状态文本里的半角竖线 | 规范化成全角 ｜（2026-10-17 生产实测：PUT 半角，WS 回推是全角）。
+ * 这会让「按配置里的半角分隔符剥离」失效 ⇒ 每轮都认不出自己的后缀、把它当正文再追加一次（无限累加）。
+ * 因此比较与剥离都按等价字符处理。 */
+export function sameStatus(a, b) {
+  return normalizeStatusText(a) === normalizeStatusText(b);
+}
+
+export function normalizeStatusText(s) {
+  return String(s == null ? "" : s).replace(/｜/g, "|").replace(/～/g, "~");
+}
+
+
 /** 把后缀模板编译成"能认出我们上次写的那截尾巴"的正则（锚定结尾，占位符→数字） */
 export function suffixPattern(template) {
   const body = String(template == null ? "" : template).trim();
@@ -76,7 +88,10 @@ export function stripSuffix(text, template, separator = DEFAULT_SEPARATOR) {
     const before = out.slice(0, m.index);
     // 只认【我们自己写进去的那个分隔符】（含其后的空白）—— 原先还接受「任意结尾空白」✗：
     // 那会把使用者正文里凑巧同形的结尾（如「欢迎 在线 5 人」）整段吃掉（审查方独立探针实测 ✗）。
-    const sepRe = sep ? new RegExp(escapeRe(sep) + "\\s*$") : null;
+    // 分隔符里可能有被 VRChat 规范化过的字符（半角 | → 全角 ｜）⇒ 按等价类匹配
+    const sepRe = sep
+      ? new RegExp(Array.from(sep).map((ch) => (ch === "|" || ch === "｜") ? "[|｜]" : escapeRe(ch)).join("") + "\\s*$")
+      : null;
     if (m.index > 0) {
       if (!sepRe || !sepRe.test(before)) break;
       out = before.replace(sepRe, '');
@@ -250,7 +265,8 @@ export class DynamicStatusSync {
       }
     }
 
-    if (!force && target === remote) {
+    // 规范化后相等 ⇒ 视为未变化（否则 VRChat 把 | 规范化成 ｜ 后，我们每轮都误判成「变了」并重写）
+    if (!force && sameStatus(target, remote)) {
       this._lastAt = now;
       this._lastSent = target;
       return { action: "skipped", reason: "unchanged" };
