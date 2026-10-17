@@ -33,7 +33,8 @@ const WORLD_FETCH_COOLDOWN_MS = Number.isFinite(WORLD_FETCH_COOLDOWN_RAW) && WOR
 // 一个永久 404/不可见的世界会在每次 friends 请求里被反复回源（前端 120s 轮询 → 最坏每 ~2 分钟一次）。
 // 内存 Map 即可（重启即重置 → 重试一次，可接受）；无 schema 变更。
 const worldFetchCooldown = new Map(); // worldId -> lastAttemptAt
-const worldUnavailable = new Set();  // worldId -> VRChat 对当前账号返回 404/403（不可见/已下架）。注意：实测 404 可能是**暂时**的（同一批世界 8 分钟后重试即 200）⇒ 只作「本次取不到」的标注，取到即撤销
+const worldUnavailable = new Set();
+const worldFetchInflight = new Map();   // worldId -> 正在进行的回源 Promise（并发去重）  // worldId -> VRChat 对当前账号返回 404/403（不可见/已下架）。注意：实测 404 可能是**暂时**的（同一批世界 8 分钟后重试即 200）⇒ 只作「本次取不到」的标注，取到即撤销
 
 // world_cache.updated_at 由 SQLite datetime('now') 写入（UTC、无时区后缀）→ 补 Z 再解析。
 // 注意（审查 💡2）：updated_at 是「行被写过」的时间，setWorldNote/setWorldFavorited 也会刷新它而
@@ -785,8 +786,9 @@ export function registerDashboardServices(loader, ctx) {
     // 世界名预热（2026-10-17 用户报「有些获取不到地图名」）：
     // 事件列 e.world_name 是**写入那一刻**的快照；自己的位置事件写入时，那个世界往往还没进
     // world_cache（只有好友列表 / 最近游玩那两条路会预热）⇒ 这些行永远只剩「好友＋ · JP · 12345」。
-    // 这里对本次窗口里**缺名字**的世界按同一「限流 + 失败冷却」回填；回填后本次响应尽量带上名字，
-    // 历史行也会因 DTO 的 COALESCE(world_cache.name, e.world_name) 在下次请求起显示世界名 ✓
+    // 这里对本次窗口里**缺名字**的世界按同一「限流 + 失败冷却」回填。回源是异步的：
+    // **本次响应里这些行仍是空的**（首帧恒空），回填进 world_cache 后由 DTO 的
+    // COALESCE(world_cache.name, e.world_name) 在**下一次请求**起显示世界名 ✓
     try {
       const worldSvc = loader.services.get('dashboard.world');
       if (worldSvc) {
@@ -798,8 +800,14 @@ export function registerDashboardServices(loader, ctx) {
         if (need.length) {
           (async () => {
             for (const id of need) {
+              // 并发去重（复审 💡2）：同一世界的多次回源共用一次请求，避免并发首屏把配额打满
+              let inflight = worldFetchInflight.get(id);
+              if (!inflight) {
+                inflight = Promise.resolve().then(() => worldSvc({ worldId: id })).finally(() => worldFetchInflight.delete(id));
+                worldFetchInflight.set(id, inflight);
+              }
               try {
-                const w = await worldSvc({ worldId: id });
+                const w = await inflight;
                 if (w && w.unavailable) worldUnavailable.add(id);   // 404/403：本次取不到，供出口标注（取到名字时会撤销）
                 const name = w && w.name;
                 if (name) for (const ev of result) if (ev.worldId === id) ev.worldName = name;
