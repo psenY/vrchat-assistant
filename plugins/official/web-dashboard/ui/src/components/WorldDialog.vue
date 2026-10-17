@@ -1,8 +1,8 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
-import { store, closeWorld, openUser, copyText, openPreview, openInstance, openGroup } from '../store.js';
+import { store, closeWorld, openUser, copyText, openPreview, openInstance, openGroup, openWorld } from '../store.js';
 import { get, post, imgUrl } from '../api.js';
-import { date, dateTime, trustColor, parseLoc, instanceLabel } from '../utils.js';
+import { date, dateTime, time, trustColor, parseLoc, instanceLabel } from '../utils.js';
 import { toast } from '../toast.js';
 import { confirm } from '../confirm.js';
 
@@ -289,7 +289,7 @@ const worldJson = computed(() => (world.value ? JSON.stringify(world.value, null
             </button>
           </div>
         </div>
-        <Button :icon="faved ? 'pi pi-star-fill' : 'pi pi-star'" :severity="faved ? 'warning' : 'secondary'" size="small" text rounded :loading="favBusy" :title="faved ? '取消收藏' : '收藏'"
+        <Button :icon="faved ? 'pi pi-star-fill' : 'pi pi-star'" :severity="faved ? 'warn' : 'secondary'" size="small" text rounded :loading="favBusy" :title="faved ? '取消收藏' : '收藏'"
           @click="toggleFav" />
         <Button icon="pi pi-thumbs-up" size="small" text rounded :loading="rateBusy === 1" :title="'喜欢（影响推荐）'" :aria-label="'喜欢'"
           @click="rateWorld(1)" />

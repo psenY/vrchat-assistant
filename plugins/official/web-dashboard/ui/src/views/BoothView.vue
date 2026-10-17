@@ -166,7 +166,7 @@ async function openDetail(item) {
           </div>
           <div class="bh-acts">
             <Button size="small" text icon="pi pi-info-circle" :aria-label="'详情 ' + it.name" @click="openDetail(it)" />
-            <Button size="small" text icon="pi pi-star-fill" severity="warning" :aria-label="'取消收藏 ' + it.name" @click="toggleFav(it)" />
+            <Button size="small" text icon="pi pi-star-fill" severity="warn" :aria-label="'取消收藏 ' + it.name" @click="toggleFav(it)" />
             <a v-if="it.url" class="bh-open" :href="it.url" target="_blank" rel="noopener"><i class="pi pi-external-link"></i> 打开</a>
           </div>
         </div>
@@ -184,7 +184,7 @@ async function openDetail(item) {
             <span v-if="it.shopName" class="bh-shop">{{ it.shopName }}</span>
           </div>
           <div class="bh-acts">
-            <Button size="small" text :icon="isFav(it.id) ? 'pi pi-star-fill' : 'pi pi-star'" :severity="isFav(it.id) ? 'warning' : undefined" :aria-label="(isFav(it.id) ? '取消收藏 ' : '收藏 ') + it.name" @click="toggleFav(it)" />
+            <Button size="small" text :icon="isFav(it.id) ? 'pi pi-star-fill' : 'pi pi-star'" :severity="isFav(it.id) ? 'warn' : undefined" :aria-label="(isFav(it.id) ? '取消收藏 ' : '收藏 ') + it.name" @click="toggleFav(it)" />
             <Button size="small" text icon="pi pi-info-circle" label="详情" :loading="detailLoading" @click="openDetail(it)" />
             <a v-if="it.url" class="bh-open" :href="it.url" target="_blank" rel="noopener"><i class="pi pi-external-link"></i> 打开</a>
           </div>
@@ -197,7 +197,7 @@ async function openDetail(item) {
       <div v-if="detailLoading" class="loading-mini"><ProgressSpinner style="width:28px;height:28px" strokeWidth="4" /></div>
       <div v-else-if="detail" class="bh-detail">
         <div class="bh-dfav">
-          <Button :icon="isFav(detail.id) ? 'pi pi-star-fill' : 'pi pi-star'" :severity="isFav(detail.id) ? 'warning' : undefined"
+          <Button :icon="isFav(detail.id) ? 'pi pi-star-fill' : 'pi pi-star'" :severity="isFav(detail.id) ? 'warn' : undefined"
             :label="isFav(detail.id) ? '已收藏' : '收藏'" size="small" @click="toggleFav({ id: detail.id, name: detail.name, price: detail.price, imageUrl: detail.imageUrl || (detail.images && detail.images[0] && detail.images[0].original), url: detail.url })" />
         </div>
         <img v-if="detail.imageUrl || (detail.images && detail.images[0])" :src="detail.imageUrl || detail.images[0].original" class="bh-big" alt="" />
