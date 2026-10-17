@@ -120,6 +120,19 @@ export default function register(api) {
 
   // 进程内状态：跨重启由 api.db 恢复
   let appliedText = '';
+
+  /**
+   * 与核心动态状态引擎共存（2026-10-12）：核心会把我们写的文案变成「挂机中 · 在线 5 人」，
+   * 若按整串相等比较，会被误判成「使用者手写的文案」⇒ 误捕获挂机文案 / 每轮重复写入。
+   * 判据：相等，或以我们写过的文案开头（核心只会在尾部追加）。
+   */
+  // 判据＝相等，或以我们写过的文案**开头**（后者用于容忍本引擎在结尾补的后缀）。
+// 取舍（审查 💡4）：使用者手写的文案**恰好**以 idleTemplate / appliedText 开头时会被误判成
+// 「我方文案」（低概率；代价是那一轮不重写，下一轮远端与目标一致即早退，不会反复抹除）⇒ 保持 startsWith。
+function isOurText(current, expected) {
+    if (!current || !expected) return false;
+    return current === expected || current.startsWith(expected);
+  }
   let lastState = '';
   let lastApplyAt = 0;
   let lastError = '';

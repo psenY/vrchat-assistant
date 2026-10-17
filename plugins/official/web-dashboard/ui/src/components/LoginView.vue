@@ -1,11 +1,19 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { setToken, verifyToken } from '../api.js';
 
+// 2026-10-16：接收父组件传来的探测失败原因（issue #213）—— 让登录页一进来就显示原因，而不是只写控制台
+const props = defineProps({ initialError: { type: String, default: '' } });
 const token = ref('');
 const showPwd = ref(false);
-const error = ref('');
+const error = ref(props.initialError || '');
+// 2026-10-16 审查 nixi-agent 💡1：不要依赖「登录表单一定在 catch 之后才挂载」这个跨文件前提（它没有任何保护）。
+// 改成响应式跟进：父组件后续补充原因也能显示；已有错误（例如用户提交失败）不被覆盖 ✓
 const loading = ref(false);
+
+watch(() => props.initialError, (v) => {
+  if (v && !error.value) error.value = v;   // 只在还没有错误时补入，避免盖掉用户操作后的提示
+});
 
 async function submit() {
   const t = token.value.trim();
