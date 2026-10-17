@@ -1,15 +1,17 @@
 /**
- * test/dashboard-events-world-warmup.test.mjs —— 动态流「缺地图名」预热护栏
+ * test/dashboard-events-world-warmup.test.mjs —— 动态流「缺地图名」预热 + 404 显式标注
  *
  * 2026-10-17 用户报「有些获取不到地图名」（截图里自己的位置行只剩「好友＋ · JP · 12345」）：
  * 事件列 e.world_name 是**写入那一刻**的快照，而自己的位置事件写入时那个世界往往还没进
- * world_cache（只有「好友列表」「最近游玩」两条路会预热）⇒ 这些行永远没有名字 ✗。
+ * world_cache（只有「好友列表」「最近游玩」两条路会预热）⇒ 这些行永远没有名字。
  *
- * 修法＝dashboard.events 的出口对**本次窗口里缺名字**的世界按同一「限流 + 失败冷却」回填一次；
- * 回填后历史行也能显示（DTO 是 COALESCE(world_cache.name, e.world_name)）。
+ * 修法 ①：dashboard.events 出口对本次窗口里缺名字的世界按同一「限流 + 失败冷却」回源一次；
+ *         回填后历史行也能显示（DTO 是 COALESCE(world_cache.name, e.world_name)）。
+ * 修法 ②：回源被告知 404/403（世界对当前账号不可见 / 已下架）⇒ 名字客观上取不到，
+ *         出口给该行打 worldNameUnavailable，界面显示「404世界 + 完整 worldId」（房间号照旧）。
  *
- * 自证（变异会红）：把 dashboard-services.js 里那段「世界名预热」删掉 ⇒
- *   ① calls 为空（断言 1 红）；② 第二次请求里该行 worldName 仍是空（断言 2 红）。
+ * 自证（变异会红）：把「世界名预热」整段删掉 ⇒ 用例 1/2 红；把 `if (w && w.unavailable)` 那行删掉
+ * ⇒ 用例 3 红（标记不会出现）。
  */
 import { rmSync } from 'node:fs';
 import path from 'node:path';
@@ -40,29 +42,29 @@ after(() => { for (const f of [tmpDb, tmpDb + '-wal', tmpDb + '-shm']) { try { r
 
 const MISSING = 'wrld_missing-0000-0000-0000-000000000001';
 const CACHED = 'wrld_cached-0000-0000-0000-000000000002';
-const NAMELESS_NO_WORLD = '';
+const NOTFOUND = 'wrld_notfound-0000-0000-0000-000000000003';
 
-// world_cache 里只预置 CACHED 一个世界（模拟「好友列表那条路早就预热过」）
 ctx.storage.upsertWorld({ worldId: CACHED, name: '已有世界' });
 
-// 用可控的假 dashboard.world 覆盖真实实现：不发网络请求，只记录被请求过哪些世界
 const calls = [];
+const behavior = new Map([[MISSING, 'ok'], [NOTFOUND, '404']]);
 services.set('dashboard.world', async ({ worldId }) => {
   calls.push(worldId);
-  const name = worldId === MISSING ? '预热世界' : '';
-  if (name) ctx.storage.upsertWorld({ worldId, name });
-  return { worldId, name };
+  const mode = behavior.get(worldId);
+  if (mode === 'ok') { const name = '预热世界'; ctx.storage.upsertWorld({ worldId, name }); return { worldId, name }; }
+  if (mode === '404') return { worldId, name: '', unavailable: true };
+  return { worldId, name: '' };
 });
 
 const t0 = Date.now();
 const ins = (worldId, loc, dt) => ctx.storage.insertEvent({
   type: 'user-location', userId: 'usr_me', displayName: '我',
-  contentJson: { location: loc }, worldId, worldName: '',   // ← 写入时没名字（生产实测就是这样）
+  contentJson: { location: loc }, worldId, worldName: '',
   createdAt: new Date(t0 + dt).toISOString(), source: 'ws',
 });
 ins(MISSING, MISSING + ':12345~hidden(usr_me)', 0);
 ins(CACHED, CACHED + ':22222~hidden(usr_me)', 1000);
-ins(NAMELESS_NO_WORLD, 'traveling:traveling', 2000);
+ins('', 'traveling:traveling', 2000);
 
 const waitFor = async (pred, ms = 2000) => {
   const end = Date.now() + ms;
@@ -70,18 +72,30 @@ const waitFor = async (pred, ms = 2000) => {
   return pred();
 };
 
-test('缺名世界会被后台预热一次；已有缓存/无世界 id 的行不重复请求', async () => {
+test('缺名世界会被后台预热一次；已有缓存/无 world id 的行不重复请求', async () => {
   await services.get('dashboard.events')({ limit: 10 });
-  assert.ok(await waitFor(() => calls.includes(MISSING)), '缺名的世界应被回源一次（变异：删掉预热块 ⇒ 这里红）');
-  assert.deepEqual(calls, [MISSING], '只请求真正缺名的世界：有缓存的不请求、traveling 行（无 world id）不请求');
+  assert.ok(await waitFor(() => calls.includes(MISSING)), '缺名的世界应被回源一次');
+  assert.deepEqual(calls, [MISSING], '只请求真正缺名的世界：有缓存的不请求、traveling 行不请求');
 });
 
 test('预热落缓存后，同一历史行下一次请求即可显示世界名（COALESCE 口径）', async () => {
   await waitFor(() => (ctx.storage.getWorldName(MISSING) || {}).name === '预热世界');
   const out = await services.get('dashboard.events')({ limit: 10 });
   const row = out.events.find((e) => e.worldId === MISSING);
-  assert.ok(row, '缺名行本身要照常返回（预热是旁路，不能吞行）');
-  assert.equal(row.worldName, '预热世界', '历史行的世界名应从 world_cache 取到（变异：删掉预热块 ⇒ 这里仍是空串）');
+  assert.ok(row, '缺名行本身要照常返回');
+  assert.equal(row.worldName, '预热世界', '历史行的世界名应从 world_cache 取到');
   const cachedRow = out.events.find((e) => e.worldId === CACHED);
   assert.equal(cachedRow.worldName, '已有世界');
+  assert.ok(!cachedRow.worldNameUnavailable, '有名字的世界不得被标成 404');
+});
+
+test('回源得到 404/403 ⇒ 该行被标 worldNameUnavailable（界面才有「404世界 + worldId」）', async () => {
+  ins(NOTFOUND, NOTFOUND + ':67893~hidden(usr_me)', 3000);
+  await services.get('dashboard.events')({ limit: 10 });
+  assert.ok(await waitFor(() => calls.includes(NOTFOUND)), '不可见世界也要尝试一次（否则不知道它是 404）');
+  const out = await services.get('dashboard.events')({ limit: 10 });
+  const row = out.events.find((e) => e.worldId === NOTFOUND);
+  assert.ok(row, '404 世界的事件行要照常返回');
+  assert.equal(row.worldNameUnavailable, true, '应被标记为世界名不可得');
+  assert.equal(row.worldName, '', '名字确实拿不到，不得编造');
 });
