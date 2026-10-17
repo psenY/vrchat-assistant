@@ -781,6 +781,32 @@ export function registerDashboardServices(loader, ctx) {
       if (ev.avatarName && !isPlausibleAvatarName(ev.avatarName)) ev.avatarName = '';
       if (ev.previousAvatarName && !isPlausibleAvatarName(ev.previousAvatarName)) ev.previousAvatarName = '';
     }
+    // 世界名预热（2026-10-17 用户报「有些获取不到地图名」）：
+    // 事件列 e.world_name 是**写入那一刻**的快照；自己的位置事件写入时，那个世界往往还没进
+    // world_cache（只有好友列表 / 最近游玩那两条路会预热）⇒ 这些行永远只剩「好友＋ · JP · 12345」。
+    // 这里对本次窗口里**缺名字**的世界按同一「限流 + 失败冷却」回填；回填后本次响应尽量带上名字，
+    // 历史行也会因 DTO 的 COALESCE(world_cache.name, e.world_name) 在下次请求起显示世界名 ✓
+    try {
+      const worldSvc = loader.services.get('dashboard.world');
+      if (worldSvc) {
+        const need = [...new Set(result
+          .filter((e) => e.worldId && String(e.worldId).startsWith('wrld_') && !e.worldName)
+          .map((e) => e.worldId))]
+          .filter((id) => !worldFetchCooldown.has(id) || Date.now() - worldFetchCooldown.get(id) >= WORLD_FETCH_COOLDOWN_MS)
+          .slice(0, 5);
+        if (need.length) {
+          (async () => {
+            for (const id of need) {
+              try {
+                const w = await worldSvc({ worldId: id });
+                const name = w && w.name;
+                if (name) for (const ev of result) if (ev.worldId === id) ev.worldName = name;
+              } catch { /* 单个世界失败不影响响应（失败冷却由 dashboard.world 记录） */ }
+            }
+          })();
+        }
+      }
+    } catch { /* 预热失败不影响响应 */ }
     return { events: result, total };
   });
   loader.serviceOwners.set('dashboard.events', 'core');
