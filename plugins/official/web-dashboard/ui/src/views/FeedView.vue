@@ -25,8 +25,18 @@ function sourceLabel(s) {
   return s || '—';
 }
 
-function prevLabelOf(e) { return specialLocationLabel(e.previousLocation) || e.previousWorldName || ''; }
+// 用户 2026-10-17 定：上一刻是仅邀请房间（private/invite）时，即使拿不到世界名也要显示「私人房间」，
+// 不许跳过它去显示更早的世界名（那会变成「上次下线的世界 → 现在」）。
+function prevLabelOf(e) {
+  const direct = specialLocationLabel(e.previousLocation) || e.previousWorldName || '';
+  if (direct) return direct;
+  const p = parseLoc(e.previousLocation || '');
+  if (p && (p.type === 'private' || p.type === 'invite' || p.type === 'invite+')) return '私人房间';
+  return '';
+}
 function curIsWorld(e) { return String(e.worldId || '').startsWith('wrld_'); }
+// 目的地是 private/invite 实例且拿不到世界名 ⇒ 界面显示「私人房间」（用户 2026-10-17 定）
+function destPrivate(e) { const p = parseLoc(e.location || ''); return !!(p && (p.type === 'private' || p.type === 'invite' || p.type === 'invite+')); }
 // 左端（上一个位置）的实例信息：公开 · US · 36146（用户 2026-09-24 定「公开房间那侧要显示图像世界名和房间号」）。
 // 与目的地那侧的 inst 口径一致：都走 parseLoc + instanceLabel（不再用 locLabelFull 的整串文案）。
 // 与 locLabelFull 的**有意差异**（2026-10-16 审查 nixi-agent 2，已确认）：
@@ -519,6 +529,7 @@ onUnmounted(() => {
             <span class="dim">进入</span>
             <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
             <span v-if="x.worldName" class="world-link" @click="openWorld(x.worldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.worldId)">{{ x.worldName }}</span>
+            <span v-else-if="destPrivate(x)" class="dim">私人房间</span>
             <span v-else class="dim">VRChat</span>
           </template>
 

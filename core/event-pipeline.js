@@ -72,6 +72,11 @@ import { trustFromTags } from './friend-refresh.js';
 
 export class EventPipeline {
   constructor(storage, worldCache) {
+    // 自己的「上一条 user 快照」内存表（2026-10-17 用户报「换模型两条」）：
+    // _selfUpdateBaseline 只能查到 **带 $.user 的原始事件**，而 diff 事件本身不带 user ⇒
+    // 下一次由另一类载体（user-update vs user-location）触发 diff 时，基线又退回更早的原始快照，
+    // 于是同一次换模型被记两遍。这里在每条 self 事件处理完后记住最新快照，优先用它当基线。
+    this._selfSnap = new Map();
     this.storage = storage;
     this.worldCache = worldCache;
     this._imageKindResolver = null;   // 图片种类解析器（file tags → icon/model），由 start-monitor 注入
@@ -397,9 +402,22 @@ export class EventPipeline {
       // 新版资料系统：currentAvatar* 已被上游移除，实际字段是 iconUrl（bannerType=avatarBanner 时指向模型图）
       // ⇒ 用旧字段会让 avatarChanged 恒假、永远没有模型变动事件。注意 bannerType 会变：非 avatarBanner 时视为无模型信息。
       let newAvatarUrl = avatarImageUrlFromUser(userObj);   // let：重分类路径要把它置为同文件的模型图 URL（写回基线用）
+      const memSnap = isSelfUpdate ? this._selfSnap.get(userId) : null;
       const prev = isSelfUpdate
-        ? this._selfUpdateBaseline(userId, event.receivedAt)
+        ? (memSnap || this._selfUpdateBaseline(userId, event.receivedAt))
         : this.storage.getFriend(userId);
+      // 处理完立刻记住最新快照：下一次由另一类载体触发 diff 时用它当基线，避免同一次变更记两遍
+      if (isSelfUpdate && userObj) {
+        this._selfSnap.set(userId, {
+          user_id: userId,
+          user_icon: userObj.iconUrl || userObj.userIcon || '',
+          avatar_image_url: avatarImageUrlFromUser(userObj),
+          status: userObj.status || '',
+          status_description: userObj.statusDescription || '',
+          bio: userObj.bio || '',
+          pronouns: userObj.pronouns || '',
+        });
+      }
       if (prev && prev.user_id) {
         const changes = [];
         // ⭐ 2026-09-26（审查 🔴 同类问题）：同一个文件的不同 URL 形态（…/1/256 ↔ …/1/512）不应算作「换了模型」——

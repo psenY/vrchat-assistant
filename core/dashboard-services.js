@@ -394,7 +394,9 @@ export function registerDashboardServices(loader, ctx) {
           const loc = cj.location || '';
           // 用 startsWith 而不是 === ：线上「传送中」的形态是 traveling:traveling（2026-09-25 实测），
           // 精确匹配会漏 ⇒ prev 落在没有 world 对象的那条上 ⇒ 左端「从哪」的世界名/图全空。
-          if (!loc || loc.startsWith('traveling') || loc === 'offline' || loc === 'offline:offline') continue;
+          // 用户 2026-10-17 定：左端只显示**紧邻的上一个位置**，不得为了凑名字回退到更早的世界。
+          if (!loc || loc.startsWith('traveling')) continue;   // traveling 没有地点，继续往前找
+          if (loc === 'offline' || loc === 'offline:offline') return null;   // 上一刻离线 ⇒ 没有「从哪」
           const worldId = cj.world?.id || (loc.startsWith('wrld_') ? loc.split(':')[0] : '');
           // 缓存优先（与右端同口径）⇒ 私人房也能显示世界名与缩略图
           const cachedName = row.wc_name || '';

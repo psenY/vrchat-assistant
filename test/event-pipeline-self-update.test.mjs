@@ -20,6 +20,7 @@ const { initLogger } = await import(pathToFileURL(path.join(REPO, 'core', 'logge
 
 const MODEL_A = 'https://api.vrchat.cloud/api/1/image/file_aaaaaaaa-0000-0000-0000-000000000001/1/256';
 const MODEL_B = 'https://api.vrchat.cloud/api/1/image/file_bbbbbbbb-0000-0000-0000-000000000002/1/256';
+const MODEL_C = 'https://api.vrchat.cloud/api/1/image/file_dddddddd-0000-0000-0000-000000000004/1/256';
 const ICON_A = 'https://api.vrchat.cloud/api/1/image/file_cccccccc-0000-0000-0000-000000000003/1/256';
 
 const tmpDb = path.join(__dirname, 'test-self-update.sqlite3');
@@ -155,4 +156,17 @@ test('并发两条同值 self 事件 ⇒ 只出一条模型变动（⚠️2：se
     pipeline.process(locEvent(MODEL_B, LOC_SAME, ts2)),
   ]);
   assert.equal(countOf('avatar') - before, 1, '并发时不得各读旧基线、重复出事件');
+});
+
+test('同一次换模型被两类载体各推一次 ⇒ 只记一条（用户 2026-10-17 报「为什么两条」）', async () => {
+  const before = countOf('avatar');
+  const loc = (icon, at) => ({ type: 'user-location', userId: UID, displayName: 'psenY7', receivedAt: at,
+    content: { userId: UID, user: { id: UID, displayName: 'psenY7', iconUrl: icon, bannerType: 'avatarBanner' } } });
+  const t0 = Date.now();
+  // 生产形态：定位载体的 diff 走 storeRawEvent:false（不落原始行）⇒ 库里基线仍是旧的
+  await pipeline._handleUpdateInner(loc(MODEL_C, new Date(t0 + 1000).toISOString()), { storeRawEvent: false });
+  assert.equal(countOf('avatar') - before, 1, '第一次应记 1 条');
+  // 30 秒后另一条载体重发同一份新资料：必须用「刚处理过的那份」当基线，不得再记
+  await pipeline._handleUpdateInner(loc(MODEL_C, new Date(t0 + 31000).toISOString()), { storeRawEvent: false });
+  assert.equal(countOf('avatar') - before, 1, '同一份新资料不得再记一条（基线要用内存里最新的那份，而不是库里更早的旧快照）');
 });
