@@ -168,16 +168,6 @@ function isOurText(current, expected) {
    *   出游戏 → 先捕获当前文案为 savedText（= 上次下线时的状态），再写 idleTemplate；
    *   进游戏 → 把 savedText 写回去。
    */
-  /**
-   * 与核心动态状态引擎共存用（2026-10-12）：它会把我们写的文案变成「挂机中 · 在线 5 人」，
-   * 若按整串相等比较，会被误判成“使用者手写的文案” ⇒ 误捕获挂机文案 / 每轮重复写入。
-   * 判据：相等，或者以我们写的文案开头（核心只会在尾部追加）。
-   */
-  function isOurText(current, expected) {
-    if (!current || !expected) return false;
-    return current === expected || current.startsWith(expected);
-  }
-
   async function applyStatus({ manual = false } = {}) {
     const config = readConfig();
     if (!config.enabled) return { action: 'skipped', reason: 'disabled' };

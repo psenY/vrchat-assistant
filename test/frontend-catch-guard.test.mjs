@@ -40,8 +40,9 @@ const BASELINE = [
   ['src/views/WeeklyReportView.vue', "if (mySeq === seq) { report.value = null; toast('加载周报失败：' + (e.message || e), 'error'); }", '新查询清空 + toast 报错'],
   ['src/views/PrintsView.vue', "if (tab.value === 'prints') prints.value = [];", '上方已设 error.value = 加载失败'],
   ['src/views/PrintsView.vue', 'else gallery.value = [];', '同上'],
-  // 2026-10-17：#297（登录页显示探测失败原因）合流后，App.vue 的 catch 改走 onAuth401() 这个单一入口
-  // ⇒ 该分支不再直接写 loginView.value = true ⇒ 上面的基线条目成为僵尸，按规则删除（不是放宽护栏）✓
+  // 2026-10-16（a2 合并上游鉴权门 + 本仓 verifyToken 先验）：探测/校验异常时**保留登录门** ——
+  // 语义就是「回到登录页」（本护栏头部第 ② 类例外），不是把失败写成「确实没有数据」✓
+  ['src/App.vue', 'loginView.value = true;', '鉴权探测/校验异常 ⇒ 保留登录门（回到登录页是安全默认）；同时已 console.warn 留痕，登录页本身只在提交时才报错'],
 ];
 
 function scan() {
