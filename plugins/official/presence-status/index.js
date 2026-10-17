@@ -38,7 +38,6 @@ const DEFAULT_CONFIG = Object.freeze({
   enabled: false,
   idleTemplate: '挂机中（服务在线）',
   pollSeconds: 60,
-  // 出游戏去抖（issue #218）：连续 N 次观测到「不在游戏」才写挂机文案，默认 2
 });
 
 const MIN_POLL_SECONDS = 20;
