@@ -104,3 +104,55 @@ test('换到别的实例 ⇒ 照常落位置行（去重不能把真位置变化
   await pipeline.process(locEvent(MODEL_B, LOC_OTHER, at(3)));
   assert.equal(locRows(LOC_OTHER), 1);
 });
+
+
+// ── 2026-10-16 审查 🔴1/⚠️1/⚠️3：self 的同实例去重必须与好友侧**同一套语义** ──
+// 桩：直接插一条历史位置行（可指定 created_at），用于构造窗口内/外与 offline 回场
+const seedLoc = (loc, atIso, icon) => storage.run(
+  "INSERT INTO events (type, user_id, display_name, content_json, world_id, world_name, created_at, source) VALUES ('user-location', $u, 'psenY7', $c, '', '', $t, 'test')",
+  { $u: UID, $c: JSON.stringify({ location: loc, user: { id: UID, displayName: 'psenY7', iconUrl: icon, bannerType: 'avatarBanner' } }), $t: atIso });
+const clearLocRows = () => storage.run("DELETE FROM events WHERE user_id = $u AND type = 'user-location'", { $u: UID });
+
+test('窗口外的同实例重复仍落一条心跳（🔴1：窗口不能退化成「同一个 UTC 日」）', async () => {
+  clearLocRows();
+  seedLoc(LOC_SAME, new Date(Date.now() - 3 * 3600 * 1000).toISOString(), MODEL_A);   // 3 小时前 ⇒ 300s 窗口外
+  assert.equal(locRows(LOC_SAME), 1);
+  await pipeline.process(locEvent(MODEL_A, LOC_SAME, new Date().toISOString()));
+  assert.equal(locRows(LOC_SAME), 2, '窗口外的重复必须落一条心跳（旧实现会吞掉 ✗）');
+});
+
+test('先 offline 再回到同一实例 ⇒ 回场那条必须落库（⚠️1：offline/traveling 不参与去重）', async () => {
+  clearLocRows();
+  seedLoc('offline', new Date(Date.now() - 30 * 1000).toISOString(), MODEL_A);   // 30s 前 ⇒ 窗口内
+  await pipeline.process(locEvent(MODEL_A, LOC_SAME, new Date().toISOString()));
+  assert.equal(locRows(LOC_SAME), 1, '离线之后回到同实例是真实变化，必须落库');
+});
+
+test('窗口配置非法 ⇒ 回落 300s 而不是静默关闭去重（⚠️3）', async () => {
+  clearLocRows();
+  const prev = process.env.VRC_MONITOR_DEDUP_SAME_INSTANCE_WINDOW_SECONDS;
+  process.env.VRC_MONITOR_DEDUP_SAME_INSTANCE_WINDOW_SECONDS = 'abc';
+  try {
+    seedLoc(LOC_SAME, new Date(Date.now() - 30 * 1000).toISOString(), MODEL_A);
+    await pipeline.process(locEvent(MODEL_A, LOC_SAME, new Date().toISOString()));
+    assert.equal(locRows(LOC_SAME), 1, '非法值必须回落 300s（旧内联实现得 NaN ⇒ 去重被静默关闭 ✗）');
+  } finally {
+    if (prev === undefined) delete process.env.VRC_MONITOR_DEDUP_SAME_INSTANCE_WINDOW_SECONDS;
+    else process.env.VRC_MONITOR_DEDUP_SAME_INSTANCE_WINDOW_SECONDS = prev;
+  }
+});
+
+test('并发两条同值 self 事件 ⇒ 只出一条模型变动（⚠️2：self 也走 userId 串行链）', async () => {
+  storage.run("DELETE FROM events WHERE user_id = $u", { $u: UID });
+  await pipeline.process(selfEvent(MODEL_A, 'avatarBanner', new Date(Date.now() - 5000).toISOString()));   // 建基线
+  const before = countOf('avatar');
+  // 两条事件给**不同时刻**（生产中 VRChat 每条 receivedAt 本就不同毫秒）：
+  // ⚠️ 已知边界：若两条恰好同毫秒，基线查询 created_at < ts 看不到兄弟行 ⇒ 可能各出一次（真实链路极罕见）
+  const ts1 = new Date().toISOString();
+  const ts2 = new Date(Date.now() + 5).toISOString();
+  await Promise.all([
+    pipeline.process(locEvent(MODEL_B, LOC_SAME, ts1)),
+    pipeline.process(locEvent(MODEL_B, LOC_SAME, ts2)),
+  ]);
+  assert.equal(countOf('avatar') - before, 1, '并发时不得各读旧基线、重复出事件');
+});

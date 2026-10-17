@@ -62,6 +62,32 @@ test('脱敏：中文校验码（验证码/校验码/动态码）覆盖，且不
   assert.ok(!out.includes('ABC123'), '校验码值不得泄漏');
   assert.ok(out.includes('验证码：[REDACTED]'), '应保留「验证码：」前缀 + 脱敏值');
   // 无分隔符的正文不得被误吞（要求显式 : = ：）
+  // 2026-10-16 审查 ⚠️1/⚠️2：补自然语序（必须命中）与「分隔符后是中文正文」（不得吞）两组边界
+  const natural = redactSecrets('您的验证码是 123456，请勿泄露');
+  assert.ok(natural.includes('[REDACTED]'), '自然语序（是 + 码）必须打码');
+  const natural2 = redactSecrets('校验码 ABC123 已生成 动态码 654321');
+  assert.ok(!natural2.includes('ABC123') && !natural2.includes('654321'), '纯空格分隔的码也必须打码');
+  const noSwallow = redactSecrets('验证码：短信已发送到邮箱');
+  assert.ok(noSwallow.includes('短信已发送到邮箱'), '分隔符后面是中文正文时**不得**吞掉（旧写法会整句遮掉）');
+  // 2026-10-16 审查 🔴1：**真实生产句子**（logging 现场形态）—— 验证码被双引号包裹，必须先遮住
+  const prod = redactSecrets('无效的验证码: "123456"，应为6位数字');
+  assert.ok(!prod.includes('123456'), '真实句子里的引号包裹验证码必须打码（上一版会漏 ✗）');
+  const prod2 = redactSecrets('无效的 TOTP 验证码: "ABC123"');
+  // 2026-10-16 审查 💡1/💡2：组合分隔符与紧贴数字形态
+  const combo1 = redactSecrets('验证码为：123456');
+  assert.ok(!combo1.includes('123456'), '组合分隔符必须打码');
+  const combo2 = redactSecrets('校验码是：ABC123');
+  assert.ok(!combo2.includes('ABC123'), '是+冒号同样必须打码');
+  const tight = redactSecrets('验证码123456已发送');
+  assert.ok(!tight.includes('123456') && tight.includes('已发送'), '紧贴数字要遮且不得吞正文');
+  assert.ok(!prod2.includes('ABC123'), 'TOTP 形态同样必须打码');
+  // 2026-10-16 审查（另一条 💡）：真实调用点还会**拼接**上一层 message（`start-monitor.js:902`）—— 一起钉住
+  const composed = redactSecrets('启动登录失败：无效的验证码: "123456"，应为6位数字');
+  assert.ok(!composed.includes('123456'), '拼接句里的验证码也必须打码（真实落盘形态）');
+  const longTok = redactSecrets('验证码: "abcdefghijklmnop1234"');
+  assert.ok(!longTok.includes('abcdefghijklmnop1234'), '长码必须整段遮住（不得只遮前 10 位留下残片）');
+  const paren = redactSecrets('验证码：123456（5分钟内有效）');
+  assert.ok(paren.includes('[REDACTED]') && paren.includes('（5分钟内有效）'), '括号说明不得被吞');
   const prose = redactSecrets('请输入验证码 已发送到邮箱');
   assert.ok(prose.includes('已发送'), '无分隔符时不得吞掉后续正文');
 });
