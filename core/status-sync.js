@@ -15,7 +15,13 @@
  *   ⑥ 同一段文字被别人反复改写 ≥3 次 ⇒ 退避 10 分钟并留一行日志（写入方抢写自保）。
  *
  * ⚠️ 同一 statusDescription 的写入方共三处：使用者本人（VRChat 客户端）、本引擎、
- * presence-status 插件。后两者通过 `composeForOther()` 共用同一合成规则 ⇒ 产出文本一致，不互相抹除。
+ * presence-status 插件。
+ * **当前真实的共存机制**（2026-10-16 按审查意见改正；此前 JSDoc 声称两边通过 `composeForOther()` 共用合成规则，
+ * 但生产代码里【没有任何调用方】✗ —— 那只是给其它写入方预留的公开 API，行为由测试固定）：
+ *   ① 插件按自己的模板写成**裸文案**（如「挂机中」）；
+ *   ② 本引擎下一轮在 suffix 模式下识别并剥离旧后缀、再补上「正文 + 分隔符 + 后缀」；
+ *   ③ 插件用 `isOurText()`（相等，或以我们写过的文案开头）认出并容忍后缀，不会把它当「使用者手改」而反复重写 ✓。
+ *   若将来让插件自己一步合成，请改用 `composeForOther()` 并共用同一 separator / template，否则两边会互相抹除。
  */
 
 const CONFIG_KEY = "dynamic_status";
@@ -28,6 +34,8 @@ const GRACE_MS = 120_000;
 const CONFLICT_LIMIT = 5;
 const CONFLICT_BACKOFF_MS = 600_000;
 const SUFFIX_MAX_STRIP = 5;
+// 分隔符上限（审查 💡3：API 可绕过 UI 的 maxlength；超长会走 room<=0 只剩后缀）
+const MAX_SEPARATOR_LEN = 4;
 
 /** 按 Unicode 码点截断（UTF-16 slice 会把 emoji 切半 ⇒ 用 Array.from） */
 function cut(s, n) {
@@ -60,14 +68,21 @@ export function suffixPattern(template) {
 export function stripSuffix(text, template, separator = DEFAULT_SEPARATOR) {
   const re = suffixPattern(template);
   let out = String(text == null ? "" : text);
+  const sep = String(separator == null ? DEFAULT_SEPARATOR : separator);
   if (!re) return out.trim();
   for (let i = 0; i < SUFFIX_MAX_STRIP; i++) {
     const m = re.exec(out);
     if (!m) break;
     const before = out.slice(0, m.index);
-    const hasSep = /[·|｜\-–—]\s*$/.test(before) || /\s$/.test(before);
-    if (m.index > 0 && !hasSep) break;
-    out = before.replace(/[\s·|｜\-–—]+$/, "");
+    // 只认【我们自己写进去的那个分隔符】（含其后的空白）—— 原先还接受「任意结尾空白」✗：
+    // 那会把使用者正文里凑巧同形的结尾（如「欢迎 在线 5 人」）整段吃掉（审查方独立探针实测 ✗）。
+    const sepRe = sep ? new RegExp(escapeRe(sep) + "\\s*$") : null;
+    if (m.index > 0) {
+      if (!sepRe || !sepRe.test(before)) break;
+      out = before.replace(sepRe, '');
+    } else {
+      out = '';   // 整段就是后缀 ⇒ 正文为空
+    }
   }
   return out.trim();
 }
@@ -133,7 +148,7 @@ export class DynamicStatusSync {
         enabled: !!c.enabled,
         mode: c.mode === "suffix" ? "suffix" : "fixed",
         template: (typeof c.template === "string" && c.template.trim()) ? c.template : DEFAULT_TEMPLATE,
-        separator: (typeof c.separator === "string" && c.separator.length) ? c.separator : DEFAULT_SEPARATOR,
+        separator: (typeof c.separator === "string" && c.separator.length) ? cut(c.separator, MAX_SEPARATOR_LEN) : DEFAULT_SEPARATOR,
       };
     } catch { return off; }
   }

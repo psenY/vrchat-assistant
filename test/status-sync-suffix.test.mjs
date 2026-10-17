@@ -231,3 +231,16 @@ test('自己改状态撞上冷却 ⇒ 冷却一过就自动核对（不干等 5 
   await new Promise((r2) => setImmediate(r2));
   assert.equal(state.desc, '打机中 · 在线 5 人');
 });
+// ── 2026-10-16 审查 ⚠️3 回归：hasSep 必须认【我们自己写进去的分隔符】，不得接受任意结尾空白 ──
+test('正文里凑巧同形的结尾（没有我们写的分隔符）不得被吃掉', () => {
+  // 审查方独立探针给出的反例：旧实现会把它剥成「欢迎」✗
+  assert.equal(stripSuffix('欢迎 在线 5 人', '在线 {total} 人'), '欢迎 在线 5 人');
+  assert.equal(stripSuffix('今天在线 5 人', '在线 {total} 人'), '今天在线 5 人');
+  // 有我们写进去的分隔符 ⇒ 照常剥离（正向路径不能被收紧掉）
+  assert.equal(stripSuffix('打机中 · 在线 5 人', '在线 {total} 人'), '打机中');
+  // 自定义分隔符同理
+  assert.equal(stripSuffix('打机中 - 在线 5 人', '在线 {total} 人', ' - '), '打机中');
+  assert.equal(stripSuffix('打机中 - 在线 5 人', '在线 {total} 人'), '打机中 - 在线 5 人');
+  // 整段就是后缀 ⇒ 正文为空
+  assert.equal(stripSuffix('在线 5 人', '在线 {total} 人'), '');
+});

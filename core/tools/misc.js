@@ -40,6 +40,7 @@ export async function handleSetDynamicStatus({ enabled, mode, template, separato
   if (mode !== undefined && mode !== 'fixed' && mode !== 'suffix') throw new Error('mode 必须是 fixed / suffix');
   if (template !== undefined && typeof template !== 'string') throw new Error('template 必须是 string');
   if (separator !== undefined && typeof separator !== 'string') throw new Error('separator 必须是 string');
+  if (separator !== undefined && Array.from(separator).length > 4) throw new Error('separator 最长 4 个字符（超长会挤掉正文空间）');
   const cfg = sync.setConfig({
     ...(enabled !== undefined ? { enabled } : {}),
     ...(mode !== undefined ? { mode } : {}),
@@ -690,13 +691,13 @@ export const tools = [
   },
   {
     "name": "get_dynamic_status",
-    "description": "[query] 查询动态状态（按在线好友数量自动更新自定义状态）引擎配置与运行状态：enabled（开关,默认关闭）、mode（fixed=整段按模板覆盖 / suffix=保留使用者手写的正文、只在结尾维护后缀）、template（fixed 下是整段模板; suffix 下是后缀模板,{total}（总在线）/ {webOnline}（网页/App 在线）/ {gameOnline}（游戏内在线）占位符替换为对应计数（旧模板的 {online} 仍兼容，等同 {total}））、separator（suffix 模式的分隔符,默认「 · 」）、onlineNow（当前在线好友数）、lastSent/lastAt（最近一次实际提交的文本与时间）。",
+    "description": "[query] 查询动态状态（按在线好友数量自动更新自定义状态）引擎配置与运行状态：enabled（开关,默认关闭）、mode（fixed=整段按模板覆盖 / suffix=保留使用者手写的正文、只在结尾维护后缀）、template（fixed 下是整段模板; suffix 下是后缀模板,{total}（总在线）/ {webOnline}（网页/App 在线）/ {gameOnline}（游戏内在线）占位符替换为对应计数（旧模板的 {online} 仍兼容、等同 {total} —— ⚠️ 语义已变：现在与 {total} 同源（绝对计数），**不再受 VRC_MONITOR_ONLINE_INCLUDE_WEB 开关约束**））、separator（suffix 模式的分隔符,默认「 · 」）、onlineNow（当前在线好友数）、lastSent/lastAt（最近一次实际提交的文本与时间）。",
     "inputSchema": { "type": "object", "properties": {} },
     handler: async (args) => handleGetDynamicStatus(args)
   },
   {
     "name": "set_dynamic_status",
-    "description": "[manage] 设置动态状态：enabled 开关（默认关闭）、mode（fixed=整段覆盖,默认; suffix=**保留你自己写的正文,只在结尾维护后缀** —— 你在 VRChat 里手打「打机中」会变成「打机中 · 在线 5 人」,你改文字后不覆盖、只在结尾补/更新那截）、template（fixed: 整段模板; suffix: 后缀模板；占位符 {total}|{总在线} / {webOnline}|{web在线} / {gameOnline}|{非web在线},旧的 {online} 仍兼容等同 {total}）、separator（suffix 模式分隔符,默认 ' · '）、syncNow 保存后是否立即强制同步一次（默认 true,绕过冷却）。上限 64 字符:suffix 模式超长时**先截断正文、保证计数完整**。频繁变更受 VRChat 限频,引擎内置 65s 冷却 + 文本无变化不提交 + 写回不自触发（unchanged 早退）。⚠️ 与插件 set_presence_status（按是否在游戏内切换状态文字）写同一个 statusDescription:fixed 模式两者会互相覆盖,建议只启用其一;suffix 模式下两者可共存（插件写入后本引擎补/更新后缀,插件也容忍后缀,不会反复抹除）。",
+    "description": "[manage] 设置动态状态：enabled 开关（默认关闭）、mode（fixed=整段覆盖,默认; suffix=**保留你自己写的正文,只在结尾维护后缀** —— 你在 VRChat 里手打「打机中」会变成「打机中 · 在线 5 人」,你改文字后不覆盖、只在结尾补/更新那截）、template（fixed: 整段模板; suffix: 后缀模板；占位符 {total}|{总在线} / {webOnline}|{web在线} / {gameOnline}|{非web在线},旧的 {online} 仍兼容等同 {total}；⚠️ {online} 现在是**绝对计数**、不再随 VRC_MONITOR_ONLINE_INCLUDE_WEB 变化）、separator（suffix 模式分隔符,默认 ' · '）、syncNow 保存后是否立即强制同步一次（默认 true,绕过冷却）。上限 64 字符:suffix 模式超长时**先截断正文、保证计数完整**。频繁变更受 VRChat 限频,引擎内置 65s 冷却 + 文本无变化不提交 + 写回不自触发（unchanged 早退）。⚠️ 与插件 set_presence_status（按是否在游戏内切换状态文字）写同一个 statusDescription:fixed 模式两者会互相覆盖,建议只启用其一;suffix 模式下两者可共存（插件写入后本引擎补/更新后缀,插件也容忍后缀,不会反复抹除）。",
     "inputSchema": {
       "type": "object",
       "properties": {
