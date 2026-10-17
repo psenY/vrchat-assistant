@@ -34,7 +34,17 @@ const WORLD_FETCH_COOLDOWN_MS = Number.isFinite(WORLD_FETCH_COOLDOWN_RAW) && WOR
 // 内存 Map 即可（重启即重置 → 重试一次，可接受）；无 schema 变更。
 const worldFetchCooldown = new Map(); // worldId -> lastAttemptAt
 const worldUnavailable = new Set();
-const worldFetchInflight = new Map();   // worldId -> 正在进行的回源 Promise（并发去重）  // worldId -> VRChat 对当前账号返回 404/403（不可见/已下架）。注意：实测 404 可能是**暂时**的（同一批世界 8 分钟后重试即 200）⇒ 只作「本次取不到」的标注，取到即撤销
+const worldFetchInflight = new Map();   // worldId -> 正在进行的回源 Promise（并发去重）
+/** 同一世界在同一时刻只发一次回源（复审 ⚠️：dashboard.events 与 dashboard.friends 会在同一轮 bootstrap 的
+ *  Promise.all 里并发点名同一个世界，而失败冷却要等失败之后才写入 ⇒ 没有 in-flight 去重会重复打 API）。 */
+function worldFetchOnce(worldSvc, worldId) {
+  let p = worldFetchInflight.get(worldId);
+  if (!p) {
+    p = Promise.resolve().then(() => worldSvc({ worldId })).finally(() => worldFetchInflight.delete(worldId));
+    worldFetchInflight.set(worldId, p);
+  }
+  return p;
+}  // worldId -> VRChat 对当前账号返回 404/403（不可见/已下架）。注意：实测 404 可能是**暂时**的（同一批世界 8 分钟后重试即 200）⇒ 只作「本次取不到」的标注，取到即撤销
 
 // world_cache.updated_at 由 SQLite datetime('now') 写入（UTC、无时区后缀）→ 补 Z 再解析。
 // 注意（审查 💡2）：updated_at 是「行被写过」的时间，setWorldNote/setWorldFavorited 也会刷新它而
@@ -192,7 +202,7 @@ export function registerDashboardServices(loader, ctx) {
         const worldSvc = loader.services.get('dashboard.world');
         (async () => {
           for (const r of missing.slice(0, 5)) {
-            try { await worldSvc({ worldId: r.worldId }); } catch { /* 单个世界失败不影响 */ }
+            try { await worldFetchOnce(worldSvc, r.worldId); } catch { /* 单个世界失败不影响 */ }
           }
         })();
       }
@@ -800,14 +810,8 @@ export function registerDashboardServices(loader, ctx) {
         if (need.length) {
           (async () => {
             for (const id of need) {
-              // 并发去重（复审 💡2）：同一世界的多次回源共用一次请求，避免并发首屏把配额打满
-              let inflight = worldFetchInflight.get(id);
-              if (!inflight) {
-                inflight = Promise.resolve().then(() => worldSvc({ worldId: id })).finally(() => worldFetchInflight.delete(id));
-                worldFetchInflight.set(id, inflight);
-              }
               try {
-                const w = await inflight;
+                const w = await worldFetchOnce(worldSvc, id);   // 与 friends 预热共享同一张 in-flight 表
                 if (w && w.unavailable) worldUnavailable.add(id);   // 404/403：本次取不到，供出口标注（取到名字时会撤销）
                 const name = w && w.name;
                 if (name) for (const ev of result) if (ev.worldId === id) ev.worldName = name;
@@ -1296,7 +1300,7 @@ export function registerDashboardServices(loader, ctx) {
       let cachedTags = cached.tags;
       if (typeof cachedTags === 'string') { try { cachedTags = JSON.parse(cachedTags || '[]'); } catch { cachedTags = []; } }
       // 缓存含标签且带 version 才视为完整（旧缓存缺 version/heat 等字段，需 fetchFresh 补齐一次）
-      if (cached.description && Array.isArray(cachedTags) && cachedTags.length && cached.version != null) return { ...pick(cached), tags: cachedTags, note: cached.note || '' };
+      if (cached.description && Array.isArray(cachedTags) && cachedTags.length && cached.version != null) return { ...pick(cached), tags: cachedTags, note: cached.note || '', unavailable: worldUnavailable.has(worldId) };
       const fresh = await fetchFresh().catch(() => null);
       return fresh ? { ...fresh, note: cached.note || '', unavailable: worldUnavailable.has(worldId) } : { ...pick(cached), tags: cachedTags, note: cached.note || '', unavailable: worldUnavailable.has(worldId) };
     }
