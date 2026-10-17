@@ -25,17 +25,22 @@ function sourceLabel(s) {
   return s || '—';
 }
 
-// 位置行的「从哪来 / 到哪去」（用户 2026-09-22 定：显示「状态 → 状态」）——
-// 左侧优先用**状态中文名**（私人房间/传送中…），否则回退世界名；例：private→private 渲染「私人房间 → 私人房间」。
-// 2026-09-24 用户复查时指出这两条被后来的重写吃掉了 ⇒ 恢复，并加护栏测试锁住。
 function prevLabelOf(e) { return specialLocationLabel(e.previousLocation) || e.previousWorldName || ''; }
 function curIsWorld(e) { return String(e.worldId || '').startsWith('wrld_'); }
-// 左端（上一个位置）的实例信息：公开 · US · 36146 —— 用户 2026-09-24 定「公开房间那侧要显示图像世界名和房间号」
+// 左端（上一个位置）的实例信息：公开 · US · 36146（用户 2026-09-24 定「公开房间那侧要显示图像世界名和房间号」）。
+// 与目的地那侧的 inst 口径一致：都走 parseLoc + instanceLabel（不再用 locLabelFull 的整串文案）。
+// 与 locLabelFull 的**有意差异**（2026-10-16 审查 nixi-agent 2，已确认）：
+// 对「有 region、但没有实例类型 token、房间号为空」的畸形串（如 wrld_abc:~region(us) / local:~region(jp)），
+// locLabelFull 会渲染一个**只含国家**的 chip（US），实测 288 条语料里 14 条属这一类；本函数**不产出 chip**（返回空）——
+// 理由：只写国家没有信息量，且真实 VRChat 位置串形如 wrld_x:12345~region(us)、不会命中这一类。
+// 这是刻意的行为差异，不是「同口径替换」的遗漏。
 function prevInstLabel(e) {
   const p = parseLoc(e.previousLocation || '');
   if (!p || !p.type) return '';
   return [instanceLabel(p.type), p.region ? p.region.toUpperCase() : '', p.instanceId || ''].filter(Boolean).join(' · ');
 }
+
+
 /* ── 类型定义（对齐 VRCX Feed filters：GPS/Online/Offline/Status/Avatar/Bio）── */
 const filterOptions = [
   { value: 'all', label: '所有' },
@@ -133,7 +138,6 @@ function toggleFav() {
 function toggleWatchFilter() {
   store.feedOnlyWatch = !store.feedOnlyWatch;
 }
-
 
 function toggleTrackedFilter() {
   store.feedOnlyTracked = !store.feedOnlyTracked;
@@ -363,9 +367,13 @@ onUnmounted(() => {
 
     <div class="feed-head">
       <h2><i class="pi pi-bolt"></i> 动态</h2>
-            <Tag v-if="store.feedLoading" value="同步中…" severity="secondary" rounded />
+      <Tag v-if="store.feedLoading" value="同步中…" severity="secondary" rounded />
       <!-- 日期+星标在标题行（双端统一）；弹层锚定到点击的按钮 -->
       <span class="vt-actions">
+        <button class="chip date-btn" :class="{ active: hasDateFilter }" @click="datePop.toggle($event)" :aria-label="'日期筛选：' + dateLabel" :title="'日期筛选'">
+          <i :class="hasDateFilter ? 'pi pi-calendar-times' : 'pi pi-calendar'"></i>
+          {{ dateLabel }}
+        </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyFav }" @click="toggleFav" :title="'仅显示星标好友'" aria-label="仅显示星标好友">
           <i :class="store.feedOnlyFav ? 'pi pi-star-fill' : 'pi pi-star'"></i>
         </button>
@@ -374,6 +382,13 @@ onUnmounted(() => {
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyMe }" @click="toggleMeFilter" :title="'仅显示我的事件'" aria-label="仅显示我的事件">
           <i :class="store.feedOnlyMe ? 'pi pi-verified' : 'pi pi-user'"></i>
+        </button>
+        <button v-if="hasAnyFilter" class="chip star-btn" title="清除全部筛选" aria-label="清除全部筛选" @click="clearAllFilters"><i class="pi pi-filter-slash"></i> 清除全部</button>
+        <button v-if="store.feedOnlyWorld" class="chip star-btn star-on" @click="clearWorldFilter" :title="'清除「只看此世界」筛选'" aria-label="清除只看此世界筛选">
+          <i class="pi pi-globe"></i> 只看此世界{{ worldNameOf() ? '：' + worldNameOf().slice(0, 16) : '' }}
+        </button>
+        <button v-if="store.feedOnlyUser" class="chip star-btn star-on" @click="clearUserFilter" :title="'清除「只看此人」筛选'" aria-label="清除只看此人筛选">
+          <i class="pi pi-filter"></i> 此人 {{ store.feedOnlyUser.slice(0, 8) }}…
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyTracked }" @click="toggleTrackedFilter" :title="'仅显示追踪非好友的事件'" aria-label="仅显示追踪非好友的事件">
           <i class="pi pi-users"></i>
@@ -386,23 +401,12 @@ onUnmounted(() => {
     <div class="feed-toolbar">
       <div class="ft-row">
         <div class="ft-chips" role="group" aria-label="事件类型筛选">
-        <button class="chip date-btn" :class="{ active: hasDateFilter }" @click="datePop.toggle($event)" :aria-label="'日期筛选：' + dateLabel" :title="'日期筛选'">
-        <i :class="hasDateFilter ? 'pi pi-calendar-times' : 'pi pi-calendar'"></i>
-        {{ dateLabel }}
-        </button>
-        <button v-if="hasAnyFilter" class="chip star-btn" title="清除全部筛选" aria-label="清除全部筛选" @click="clearAllFilters"><i class="pi pi-filter-slash"></i> 清除全部</button>
-        <button v-if="store.feedOnlyWorld" class="chip star-btn star-on" @click="clearWorldFilter" :title="'清除「只看此世界」筛选'" aria-label="清除只看此世界筛选">
-        <i class="pi pi-globe"></i> 只看此世界{{ worldNameOf() ? '：' + worldNameOf().slice(0, 16) : '' }}
-        </button>
-        <button v-if="store.feedOnlyUser" class="chip star-btn star-on" @click="clearUserFilter" :title="'清除「只看此人」筛选'" aria-label="清除只看此人筛选">
-  <i class="pi pi-filter"></i> 此人 {{ store.feedOnlyUser.slice(0, 8) }}…
-        </button>
           <button v-for="o in filterOptions" :key="o.value" class="chip" :class="{ active: isFilterActive(o.value) }" @click="toggleFilter(o.value)">{{ o.label }}</button>
+        </div>
         <div class="ft-search">
           <i class="pi pi-search"></i>
           <input v-model="store.feedSearch" placeholder="搜索玩家 / 世界 / 摘要…" class="search-input" aria-label="搜索动态" />
           <i v-if="store.feedSearch" class="pi pi-times search-clear" title="清空" @click="store.feedSearch = ''"></i>
-        </div>
         </div>
       </div>
     </div>
@@ -451,20 +455,20 @@ onUnmounted(() => {
             </template>
             <template v-else>
             <template v-if="prevLabelOf(x) && (curIsWorld(x) ? prevLabelOf(x) !== x.worldName : true)">
-  <span class="src-group">
+              <span class="src-group">
                 <img v-if="x.previousWorldImageUrl" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
                 <span v-if="x.previousWorldId" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
                 <span v-else class="dim">{{ prevLabelOf(x) }}</span>
                 <span v-if="prevInstLabel(x)" class="inst mono">{{ prevInstLabel(x) }}</span>
                 <span class="arr">→</span>
-  </span>
+              </span>
             </template>
-<span class="dest-group">
+            <span class="dest-group">
               <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
               <span v-if="x.worldName" class="world-link" @click="openWorld(x.worldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.worldId)">{{ x.worldName }}</span>
               <span v-else-if="x.location" class="dim">{{ specialLocationLabel(x.location) || locLabel(x.location) || x.location }}</span>
               <span v-if="x.instanceType || x.region || x.instanceId" class="inst mono">{{ instanceLabel(x.instanceType) }}{{ x.region ? ' · ' + x.region.toUpperCase() : '' }}{{ x.instanceId ? ' · ' + x.instanceId : '' }}</span>
-</span>
+            </span>
             </template>
           </template>
 
@@ -704,8 +708,8 @@ onUnmounted(() => {
 
 <style scoped>
 .feed-view { padding: 4px; }
-.feed-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.feed-head h2 { margin: 0; }
+/* 标题行：让 .feed-count 的 margin-left:auto 生效（上游此前没有这条规则 ⇒ 计数贴不到右） */
+.feed-head { display: flex; align-items: center; gap: 6px; }
 
 .feed-toolbar {
   margin-bottom: 12px;
@@ -719,10 +723,6 @@ onUnmounted(() => {
 }
 .ft-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ft-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1 1 320px; min-width: 0; }
-/* 布局：类型筛选 chips 保持完整一行；空间不足时【搜索框】先换行并整行独占
-   两段选择器 ⇒ scoped 编译后特异性高于 .ft-search[data-v]，才能真正生效 */
-.ft-row .ft-chips { flex: 1 1 auto; min-width: 0; }
-.ft-row .ft-search { flex: 1 1 160px; min-width: 140px; max-width: none; order: 2; }
 .ft-search {
   flex: none;
   max-width: 210px;
@@ -744,7 +744,6 @@ onUnmounted(() => {
 .ft-search > .pi-search { font-size: 11px; color: var(--text-dim); flex: none; }
 .search-clear { font-size: 10px; color: var(--text-dim); cursor: pointer; padding: 2px; flex: none; }
 .search-clear:hover { color: var(--text); }
-.feed-sub { font-size: 11px; color: var(--text-dim); flex: 1; min-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .feed-count { margin-left: auto; color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* C4 窄窗口：计数保持行内、贴最右（不换行独占） */
 @media (min-width: 900px) and (max-width: 1280px) {
@@ -840,14 +839,6 @@ onUnmounted(() => {
 .c-detail > *:last-child, .c-detail > .bio-text, .c-detail > .noti-msg, .c-detail > .noti-read-wrap { flex: 0 1 auto; }
 @media (max-width: 899px) {
   .c-detail { flex-wrap: wrap; overflow: visible; }
-  /* 用户要求：房间信息（公开 · JP · 实例号）放到世界名这条边上。
-     手机端 c-detail 允许换行，世界名那组太长会把 .inst 挤到第二行 ⇒
-     让世界名可收缩（省略号让位），把房间信息留在同一行 */
-  /* 让世界名那一段的【任何】文本形态都能收缩让位（原来只处理了 .world-link，
-     而"上一个世界名"在无 worldId 时是 .dim ⇒ 那个不可缩，仍会把房间信息挤下去）*/
-  .c-detail > .world-link, .c-detail > .dim {
-    min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
   .c-detail > * { flex: 0 1 auto; }
 }
 .dim { color: var(--text-dim); white-space: nowrap; }
@@ -862,7 +853,7 @@ onUnmounted(() => {
 }
 .uicon { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; }
 .world-link:hover { background: color-mix(in srgb, var(--accent-2) 22%, transparent); }
-/* 目的地组：世界名 + 房间信息绑成不可拆的一组 ⇒ 房间信息不再被挤到单独一行（用户要求）*/
+/* 2026-10-16 恢复（用户 2026-09-24 定案）：目的地/来源各绑成一组 ⇒ 房间信息不再被世界名挤到第二行 */
 .dest-group, .src-group { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 auto; }
 .inst { color: var(--text-dim); font-size: 10.5px; background: var(--surface-3); padding: 1px 6px; border-radius: 5px; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
@@ -1020,11 +1011,10 @@ onUnmounted(() => {
   /* C1 触控目标：加载更多按钮移动端加大（30px→36px） */
   .feed-more :deep(.p-button) { min-height: 36px; padding: 6px 16px; }
   /* 右上角计数三段在手机上收窄（完整值在 title 提示） */
-  .feed-count { font-size: 11px; max-width: 56%; }
+  .feed-count { font-size: 10px; max-width: 56%; }
   /* B1：类型筛选 chips 单行横向滚动，不再全宽换行占半屏 */
   .ft-chips {
     order: 3;
-    flex-wrap: wrap;   /* 折行而非横向滚动：搜索框才能补到剩余空位（用户选 A）*/
     flex-basis: 100%;
     flex-wrap: nowrap;
     overflow-x: auto;

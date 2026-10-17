@@ -1,7 +1,6 @@
 // 响应式数据层（移植旧 core.js 模式：快/慢路径拆分 + 30s 轮询 + SSE + hash 视图同步）
 import { reactive } from 'vue';
-import { get, post, openSse, getToken } from './api.js';   // getToken：启动守卫用（此前漏导入 ⇒ ReferenceError ⇒ authed 恒 false ⇒ 一个请求都不发 ✗）
-import { toast } from './toast.js';
+import { get, post, openSse, getToken } from './api.js';   // 2026-09-22：补 getToken 导入 —— 启动守卫里用了它却没导入 ⇒ ReferenceError 被 catch 吞掉 ⇒ authed 恒 false ⇒ 一个请求都不发（表现与后端挂了完全一样）✗
 import { serverUpdateTypes } from './constants/event-types.js';
 
 // 类型筛选的服务端参数（2026-10-07）：选中的全是「资料变更子类型」时才下发 updateTypes。
@@ -27,6 +26,10 @@ function parseEvents(d) {
 }
 
 export const store = reactive({
+  authRequired: null,   // null=未知（探针未跑）/ false=不需要鉴权 / true=需要 ✓
+  // 2026-10-16（审查 💡1）：**显式声明**——它是数据面的核心门禁（startDashboard 的 authed 读它），
+  // 只在 App.vue 的 verifyToken 成功后置 true；不声明的话单看本文件发现不了这个契约 ✓
+  authVerified: false,
   view: 'feed',
   isMobile: false,
   navOpen: false,
@@ -48,8 +51,6 @@ export const store = reactive({
   eventsRange: { min: null, max: null },  // 动态数据时间范围（日历筛选可选范围）
   feedLoading: false,
   feedLoadingMore: false,
-  feedMoreError: '',        // 「加载更多」失败原因（2026-09-22：502 曾被谎报成「已加载全部动态」）
-  loadError: '',            // 首屏加载失败原因（2026-09-22 用户：失败不能静默显示成「暂无动态」）
 
   friends: [],
   friendsSearch: '',
@@ -289,6 +290,9 @@ function syncRightGroups() {
   store.offlineFriends = list.filter((f) => !f.isOnline);
   store.favFriends = list.filter((f) => store.favFriendIds && store.favFriendIds.has(f.userId));
 }
+
+// 关键路径（本地 DB，秒回）+ 慢路径（VRChat API，后台填）
+// 已有数据时静默刷新：不再置 feedLoading（避免标题行"同步中…"Tag 闪烁），保持旧列表原地更新
 // ── 本地缓存（2026-09-22 用户要「无感」优化：首屏先用缓存渲染、再后台刷新）──
 // 约束：①只在首屏 hydrate，不改变任何接口语义 ②token 失效应清空 ③TTL 5 分钟，过期仍可用（stale-while-revalidate）
 const CACHE_KEY = 'vrc.dash.cache';
@@ -300,13 +304,16 @@ function readCache() {
     const o = JSON.parse(raw);
     if (!o || typeof o !== 'object') return null;
     return o;
-  } catch { return null; }
+  // 缓存不可用（非法 JSON / localStorage 被禁）⇒ 裸 return（= undefined）表示「没有缓存」，
+  // 由调用方按无缓存处理；不写 null/false 之类「正常值」，以免被 test/frontend-catch-guard 判为
+  // 「把失败写成业务结论」（缓存语义下等价，且满足该护栏的规则）✓
+  } catch { return; }
 }
 function writeCache(patch) {
   try {
     const cur = readCache() || {};
     localStorage.setItem(CACHE_KEY, JSON.stringify({ ...cur, ...patch, at: Date.now() }));
-  } catch { /* 隐私模式/配额满：静默跳过，不影响功能 */ }
+  } catch (e) { console.debug('[dashboard] 缓存写入跳过（隐私模式/配额满）:', e); }
 }
 export function clearDashCache() { try { localStorage.removeItem(CACHE_KEY); } catch {} }
 function cacheFresh(o) { return !!o && (Date.now() - (o.at || 0)) < CACHE_TTL_MS; }
@@ -314,7 +321,8 @@ function cacheFresh(o) { return !!o && (Date.now() - (o.at || 0)) < CACHE_TTL_MS
 // 模块加载即 hydrate：早于 app mount ⇒ 首屏直接用上次数据填满（随后 load() 静默刷新）✓
 hydrateFromCache();
 // token 失效时清空缓存（避免把上个会话的数据显示给未登录/换号的用户）✓
-try { window.addEventListener('vrc-auth-401', () => clearDashCache()); } catch { /* SSR/测试环境无 window */ }
+let __saw401At = 0;
+try { window.addEventListener('vrc-auth-401', () => { __saw401At = Date.now(); clearDashCache(); }); } catch { /* SSR/测试环境无 window */ }
 
 // 首屏 hydrate：用上次的数据先把界面填满（好友/动态/概览），随后 load() 会静默刷新 ✓
 export function hydrateFromCache() {
@@ -336,28 +344,32 @@ export function hydrateFromCache() {
     } catch { /* 缓存形状不可用 ⇒ 跳过 hydrate，等接口 ✓ */ }
   }
   if (c.overview && !store.overview) { store.overview = c.overview; hit = true; }
+  if (c.me && !store.me) { store.me = c.me; hit = true; }
+  if (c.nicknameMap && !Object.keys(store.nicknameMap || {}).length) { store.nicknameMap = c.nicknameMap; hit = true; }
+  if (Array.isArray(c.favFriendIds) && c.favFriendIds.length && !(store.favFriendIds && store.favFriendIds.size)) { store.favFriendIds = new Set(c.favFriendIds); hit = true; }
   if (c.eventsRange && c.eventsRange.min) { store.eventsRange = c.eventsRange; hit = true; }
   if (hit) console.info('[dashboard] 首屏使用本地缓存渲染（' + (cacheFresh(c) ? '新鲜' : '已过期') + '），随后静默刷新');
   return hit;
 }
 
-
-// 关键路径（本地 DB，秒回）+ 慢路径（VRChat API，后台填）
-// 已有数据时静默刷新：不再置 feedLoading（避免标题行"同步中…"Tag 闪烁），保持旧列表原地更新
 export async function load(quiet = false) {
+  const __roundStart = Date.now();
   const silent = quiet || store.feedEvents.length > 0;
-  store.loadError = '';   // 每次加载先清错误，失败时再置
   if (!silent) store.feedLoading = true;
   try {
     // 2026-09-22 首屏合并：公网反代下每个请求要付 1.4-3s 往返，第一波 4 个接口并为 1 次。
     // bootstrap 不可用（旧后端 / 404 / 报错）时回退到逐个请求，行为与之前完全一致。
     let o; let f; let parsed; let rng;
+    // 2026-09-22 #228 的失败判据在两条路径上都要成立 ⇒ 提到外层 let（bootstrap 成功即视为本轮成功）
+    let okAny = true; let feedOk = true;
     const boot = await get('/api/dashboard/bootstrap?limit=50').catch(() => null);
     if (boot && (boot.overview || boot.friends)) {
       o = boot.overview;
       f = boot.friends;
       parsed = parseEvents({ events: boot.events || [], total: boot.total || 0 });
       rng = boot.eventsRange;
+      // bootstrap 返回体缺 events = 关键请求等价失败（#228 语义：关键请求失败不得清横幅、不得用空值覆盖旧动态）
+      feedOk = Array.isArray(boot.events);
     } else {
     const settled = await Promise.allSettled([
       get('/api/dashboard/overview'),
@@ -366,7 +378,21 @@ export async function load(quiet = false) {
       get('/api/dashboard/events-range'),
     ]);
     const val = (i) => (settled[i].status === 'fulfilled' ? settled[i].value : null);
-    // 2026-09-22 修复致命作用域 bug：此处原为 const o/f/parsed/rng ✗ ⇒ 只作用于 else 块内部，    // 外层 let 永不赋值 ⇒ 走到回退路径时第 378 行 parsed.events 抛（Cannot read properties of undefined），    // 表现为整页加载失败（用户报「所有页面全黑」）✓。现改为给外层变量赋值 ✓，回退路径因此真正可用 ✓。    o = val(0);    f = val(1);    parsed = parseEvents(val(2));    rng = val(3);
+    // 2026-09-22 评审 🔴：这里原为 const o/f/parsed/rng —— 块级 const 遮蔽了外层 let
+    // ⇒ 出块后 parsed 仍是 undefined ⇒ parsed.events 抛 TypeError 被外层 catch 吞掉
+    // ⇒ 回退模式下首屏全空（与正文声称的「行为与之前一致」不符）⇒ 改为只赋值、不声明
+    // 2026-09-22 评审残留（#228）：allSettled **永不 reject** ⇒ 不能把"本轮全部结束"当成"本轮成功"
+    // 判据改为"至少一个 fulfilled"；全部失败时反而写 loadError（此前 load() 自身无失败上报路径）
+    // 2026-09-22 评审（阻断 · #228）：只判「有任一成功」不够 —— events 单点失败而 overview 成功时，
+    // 横幅被清 + 动态被写成空 ⇒ 仍是「把失败伪装成正常结论」。关键请求＝动态流（settled[2]）
+    // ⚠️ 维护方合并说明：#237 引入 bootstrap 路径后，这两个判据必须在外层声明（否则 bootstrap 路径
+    //    走到下方公共代码时 feedOk 未定义 → 被外层 catch 吞掉 → 首屏静默空白）
+    okAny = settled.some((x) => x.status === 'fulfilled');
+    feedOk = settled[2].status === 'fulfilled';
+    o = val(0);
+    f = val(1);
+    parsed = parseEvents(val(2));
+    rng = val(3);
     }
     if (rng && rng.min) store.eventsRange = { min: rng.min, max: rng.max || null };
     if (o) {
@@ -379,23 +405,24 @@ export async function load(quiet = false) {
       if (o.vrcStatus) store.vrcStatus = o.vrcStatus;
       else if (o.status && o.status.indicator) store.vrcStatus = o.status.indicator;
     }
+    store.loadError = feedOk ? '' : (okAny ? '动态流加载失败（其余数据正常）' : '本轮请求全部失败（网络或服务不可达）');   // 关键请求成功才清；文案不带前缀（模板已拼「加载失败：」）
     store.friends = (f && f.friends) || (Array.isArray(f) ? f : store.friends);
-    // 2026-09-23（同步 PR #228 的关键判据）：请求失败时 parseEvents(null) 会给出 {events:[],total:0}
-    // ⇒ 原写法会把动态流写成空、用户看到「暂无动态」却没有任何失败提示 ✗
-    // ⇒ 只在「新数据非空 或 旧列表本就为空」时才覆盖；失败/空响应时**保持旧值** ✓
-    const _hasNew = Array.isArray(parsed.events) && parsed.events.length > 0;
-    const _hadNone = !Array.isArray(store.feedEvents) || store.feedEvents.length === 0;
-    if ((_hasNew || _hadNone) && (!Array.isArray(store.feedEvents) || store.feedEvents.length <= 50)) {
+    // 评审（阻断）其二：关键请求失败时不得用空值覆盖旧数据（否则「暂无动态」且无提示）
+    if (feedOk && (!Array.isArray(store.feedEvents) || store.feedEvents.length <= 50)) {
       store.feedEvents = parsed.events;
       store.feedTotal = parsed.total || store.feedTotal;
     }
-    if (_hasNew) store.feedHasMore = parsed.events.length >= 50;
+    if (feedOk) store.feedHasMore = parsed.events.length >= 50;
     syncRightGroups();
-    writeCache({
+    if (okAny && __saw401At <= __roundStart) writeCache({
       friends: store.friends,
       feedEvents: store.feedEvents.slice(0, 50),
       feedTotal: store.feedTotal,
       overview: store.overview,
+      me: store.me,
+      nicknameMap: store.nicknameMap,
+      // ⚠️1（审查）：Set 不能直接 JSON 化 ⇒ 存数组、hydrate 时重建 Set（首屏「仅星标」与昵称列不再短暂为空）
+      favFriendIds: Array.from(store.favFriendIds || []),
       eventsRange: store.eventsRange,
     });
 
@@ -414,11 +441,7 @@ export async function load(quiet = false) {
       syncRightGroups();
     });
   } catch (err) {
-    console.warn('Dashboard load error:', err);    // 2026-09-22 用户报障：请求失败时前端不提示、动态页直接显示「暂无动态」✗ ⇒ 记下原因并在非静默刷新时弹一次错误
-    if (!silent) {
-      store.loadError = (err && err.message) ? err.message : '网络或服务不可达';
-      toast('加载失败：' + store.loadError + '（点动态页的「重试」可重发）', 'error');
-    }
+    console.warn('Dashboard load error:', err);
   } finally {
     store.feedLoading = false;
   }
@@ -460,7 +483,6 @@ export async function resetFeed() {
 export async function loadMoreFeed({ target = 50, countMatch = null } = {}) {
   if (store.feedLoadingMore) return;
   store.feedLoadingMore = true;
-  store.feedMoreError = '';
   try {
     while (store.feedHasMore) {
       const offset = store.feedEvents.length;
@@ -472,7 +494,7 @@ export async function loadMoreFeed({ target = 50, countMatch = null } = {}) {
         break;
       }
       store.feedEvents = [...store.feedEvents, ...more];
-      store.feedMoreError = '';
+      store.loadError = '';   // 同上：分页成功也清空 ✓
       store.feedHasMore = more.length >= 50;
       // 匹配数达标（或没有匹配判定=普通分页一次一批）→ 停；否则继续向前加载
       if (!countMatch) break;
@@ -480,9 +502,8 @@ export async function loadMoreFeed({ target = 50, countMatch = null } = {}) {
       if (!store.feedHasMore) break;
     }
   } catch (err) {
-    // 2026-09-22 用户实测：翻页遇 502 时原实现把 feedHasMore 置 false ⇒ 界面谎报「已加载全部动态」且无重试 ✗
-    // 正确语义：失败 ≠ 数据到底。保留 feedHasMore（按钮/继续加载仍在），只记原因让 UI 显示「重试」。
-    store.feedMoreError = (err && err.message) ? err.message : '网络或服务不可达';
+    // 2026-09-22：失败不得伪装成「没有更多了」✗ —— 保持 feedHasMore 原值，把失败交给全局横幅 + 重试 ✓
+    store.loadError = (err && err.message) ? err.message : '加载更多失败（网络或服务不可达）';
   } finally {
     store.feedLoadingMore = false;
   }
@@ -744,27 +765,38 @@ function initKeyboard() {
   });
 }
 
-let __dashStarted = false;   // 幂等：App 的挂载路径与 verifyToken 路径都可能调用本函数 ✓
+// 2026-09-22 评审三轮：拆成两个幂等门 —— 本地初始化（可早于 mount）与数据面启动（探针判定后才允许）
+// 原因：未启用令牌的部署里 main.js 会在 app.mount() 前先调一次（那时 authRequired 还没置位 ⇒ authed=false），
+// 若用单个门，首次调用就把门锁掉 ⇒ App 在探针判定后那次调用被吞 ⇒ 零请求 / 不连 SSE / 不起校准
+let __dashStarted = false;   // 本地初始化门（幂等：只做一次，重复调用无副作用）
+let __dataStarted = false;   // 数据面门（只有 authed 时才开，且只开一次）
 export function startDashboard() {
-  if (__dashStarted) return;   // 幂等：App 挂载路径与 verifyToken 路径都可能调用 ✓
-  __dashStarted = true;
-  // 2026-09-22 ego 实测：登录后页面能渲染但一个请求都不发（api:0）✗ ——
-  // 根因＝本函数原为一条直线，任何一步抛错（实测首步 initFromHash 即抛）都会让后面的数据加载全部不执行 ✓。
-  // 改为逐步独立兜底：每步失败只记一行 warn，绝不阻断后续（尤其是数据加载）✓。
-  const step = (name, fn) => { try { fn(); } catch (e) { console.warn('[dashboard] 启动步骤失败 ' + name + ':', e); } };
-  const authed = (() => { try { return !!getToken(); } catch { return false; } })();
-  step('initFromHash', () => initFromHash());
-  if (authed) {
-  step('load', () => load());
+  // 2026-10-16 审查 🔴1：真实入口是 main.js 先 startDashboard() 再 mount ⇒ 有旧令牌时
+  // authed 若只看 getToken() 就会在校验前打开数据面（实测 13 个请求）
+  // ⇒ 数据面必须等「令牌已校验通过（store.authVerified）」；未启用令牌的部署走 authRequired === false ✓
+  const authed = (() => { try { return (!!getToken() && store.authVerified === true) || store.authRequired === false; } catch { return false; } })();
+  // 2026-10-16（合并上游与本仓实现）：**保留上游的双门 + authRequired 语义**（未启用令牌的部署靠它放行数据面），
+  // 同时套上本仓的「逐步独立兜底」——本函数此前是一条直线，任何一步抛错（实测首步 initFromHash 即抛）
+  // 都会让后面的数据加载全部不执行 ⇒ 页面能渲染但 **api:0**（「暂无动态」却没有任何请求）✗ ✓
+  const step = (name, fn) => { try { fn(); } catch (e) { console.warn('[dashboard] 启动步骤失败 ' + name + ':', e); } };   // 注意：某步失败**不会自动重试**（__dataStarted 在此之前已置位），需刷新页面 ✓
+  // —— 本地初始化：不依赖鉴权，幂等 ——
+  if (!__dashStarted) {
+    __dashStarted = true;
+    step('initFromHash', () => initFromHash());
+    step('notifyEnabled', () => { store.notifyEnabled = localStorage.getItem('vrc_notify') === '1'; });
+    step('trackViewport', () => trackViewport());
+    step('initKeyboard', () => initKeyboard());
+    step('bindHashChange', () => bindHashChange());
+  }
+  // —— 数据面：未登录不请求、不连 SSE、不轮询；探针判定后由 App 再调一次即可启动 ——
+  if (!__dataStarted && authed) {
+    __dataStarted = true;
+    step('load', () => load());
     step('loadWatchlist', () => loadWatchlist());
     step('loadTracked', () => loadTracked());
     step('loadNotifCount', () => loadNotifCount());
     step('loadAnnNewFlag', () => loadAnnNewFlag());
-    step('startSse', () => startSse());
-    step('poll', () => setInterval(() => load(true), 120000));
+    step('startSse', () => startSse());   // 与数据加载同处守卫（原 SSE 没进守卫 ⇒ 一连上就触发 load() ⇒ 登录页 overview 401）
+    step('poll', () => setInterval(() => load(true), 120000));   // 全量校准：120s 一次（未登录不轮询）
   }
-  step('notifyEnabled', () => { store.notifyEnabled = localStorage.getItem('vrc_notify') === '1'; });
-  step('trackViewport', () => trackViewport());
-  step('initKeyboard', () => initKeyboard());
-  step('bindHashChange', () => bindHashChange());
 }

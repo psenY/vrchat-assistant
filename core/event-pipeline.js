@@ -249,28 +249,51 @@ export class EventPipeline {
     }
   }
 
+  /** 2026-10-16 审查 ⚠️2：**整个** user-location 处理（含 diff 之后的落库）都按 userId 串行 ——
+   *  否则并发两条 self 事件时，第二条的 diff 可能仍在第一条落库前开始 ⇒ 各读同一份旧基线、重复出事件。
+   *  内层直接调 _handleUpdateInner（不经 _handleUpdate）以免同键嵌套自锁 ✓ */
   async _handleUserLocation(event) {
+    const key = String((event && event.userId) || '');
+    if (!key) return this._handleUserLocationInner(event);
+    const prevChain = this._updateChain.get(key) || Promise.resolve();
+    const run = prevChain.then(() => this._handleUserLocationInner(event));
+    const chain = run.then(() => {}, () => {});
+    this._updateChain.set(key, chain);
+    chain.then(() => { if (this._updateChain.get(key) === chain) this._updateChain.delete(key); });
+    return run;
+  }
+
+  async _handleUserLocationInner(event) {
     // 自己的位置变化：user-location 事件的 content 没有独立 worldId 字段，
     // 只有 location 字符串（如 "wrld_xxx:123~hidden(usr)~region(jp)"），
-    // 从 location 解析 worldId 落库，便于查询自己的世界访问历史。
     // ① 先做资料 diff（storeRawEvent:false —— 原始位置事件由下面统一落库，避免重复行）：
     //    VRChat 换模型时推的是【同实例 user-location + 新 iconUrl】⇒ 只有在这条路上也做 diff 才能记「模型变动」✓
-    await this._handleUpdateInner(event, { storeRawEvent: false });
+    await this._handleUpdateInner(event, { storeRawEvent: false });   // 串行由外层外壳负责（见上）✓
+    // 从 location 解析 worldId 落库，便于查询自己的世界访问历史。
     const location = event.location || '';
     const worldId = location.startsWith('wrld_') ? location.split(':')[0] : '';
     const worldName = worldId ? await this._resolveWorldName(worldId) : '';
     // 仅存事件（不 upsertFriend——user-location 是自己的位置，不更新好友状态表）
     // ② 同实例重复不落位置事件（与好友侧 VRC_MONITOR_DEDUP_SAME_INSTANCE_LOCATION 同款）：
     //    换模型 / 客户端重新同步会重发完全相同的 location ⇒ 落库后动态流会显示成「换地图」✗（用户 2026-09-28 报障）
-    const dedupOn = Number(process.env.VRC_MONITOR_DEDUP_SAME_INSTANCE_LOCATION ?? 1) !== 0;
-    const winSec = Number(process.env.VRC_MONITOR_DEDUP_SAME_INSTANCE_WINDOW_SECONDS ?? 300);
+    // ② 同实例重复不落位置事件（与好友侧**同一对 env + 同一套比较语义**）：
+    //    2026-10-16 审查 🔴1：此前用 SQL 把 ISO 的 created_at 与 datetime('now')（空格格式）做**字符串比较**
+    //    ⇒ 退化成「同一个 UTC 日」，窗口配置完全失效 ✗ ⇒ 改为与好友侧一致：取上一条 user-location 的
+    //    created_at + location，用 Date.parse 在 **JS 侧**比窗口，并复用 sameInstanceDedupConfig()（单一来源，
+    //    非法窗口值会回落 300s 而不是静默关闭去重 ⚠️3）。
+    //    同时排除 offline / traveling（与好友侧 #261 同款）：这两类转换是真实变化，不能吞。
+    const { enabled: dedupOn, windowMs: dedupWindowMs } = sameInstanceDedupConfig();
     let dupLocation = false;
-    if (dedupOn && location) {
+    if (dedupOn && location && location !== 'offline' && !String(location).startsWith('traveling')) {
       try {
-        const hit = this.storage.query(
-          `SELECT COUNT(*) AS n FROM events WHERE user_id = $uid AND type = 'user-location' AND json_extract(content_json,'$.location') = $loc AND created_at > datetime('now', '-' || $win || ' seconds')`,
-          { $uid: event.userId, $loc: location, $win: winSec })[0];
-        dupLocation = !!(hit && hit.n > 0);
+        const rows = this.storage.query(
+          `SELECT created_at AS createdAt, json_extract(content_json,'$.location') AS loc FROM events
+             WHERE user_id = $uid AND type = 'user-location' ORDER BY id DESC LIMIT 1`,
+          { $uid: event.userId });
+        const prevRow = rows && rows[0];
+        const prevAt = prevRow ? (Date.parse(prevRow.createdAt || '') || 0) : 0;
+        const nowMs = Date.parse(event.receivedAt || '') || Date.now();
+        dupLocation = !!prevRow && prevRow.loc === location && prevAt > 0 && nowMs - prevAt <= dedupWindowMs;
       } catch { /* 查询失败按不去重（宁多一条也不静默丢） */ }
     }
     if (!dupLocation) this._storeEvent({ ...event, worldId }, worldName);
@@ -326,11 +349,12 @@ export class EventPipeline {
         { $uid: userId, $before: before || new Date().toISOString() });
       const u = rows && rows[0] ? (JSON.parse(rows[0].c || '{}').user || null) : null;
       if (!u) return null;
-      const isBanner = u.bannerType === 'avatarBanner';
       return {
         user_id: userId,
         user_icon: u.iconUrl || u.userIcon || '',
-        avatar_image_url: (isBanner ? (u.iconUrl || u.currentAvatarImageUrl || '') : ''),
+        // 2026-10-16 审查 💡2：与 diff 侧统一 —— 同一纯函数决定「本次推送里代表模型图的那个 URL」，
+        // 避免非 avatarBanner 形态下这里恒空、而 diff 侧仍拿到值 ⇒ avatarChanged 判据不一致 ✓
+        avatar_image_url: avatarImageUrlFromUser(u),
         status: u.status || '',
         status_description: u.statusDescription || '',
         bio: u.bio || '',
@@ -343,9 +367,10 @@ export class EventPipeline {
   async _handleUpdateInner(event, opts = {}) {
     const userId = event.userId;
     const displayName = event.displayName;
-    // 自己的资料变更走同一条 diff，但基线来源与落库目标不同（跳过 friends 写入）✓
     // 自己的两类事件都走这条 diff：user-update（资料推送）与 user-location —— 后者是换模型时 VRChat 重发的
     // 同实例 location（载荷 iconUrl 已变；2026-09-28 实测 id 18819/18820 同实例、iconUrl 不同文件）✓
+    // ⚠️ 自防御（审查 💡4）：本判据基于「事件类型」= user-* ⇒ 自己。若上游将来对好友也推 user-update，
+    //   这里会跳过 upsertFriend / _syncProfileFromEvent ⇒ 静默丢资料。届时须改为按 userId === selfId 判定 ✓
     const isSelfUpdate = event.type === 'user-update' || event.type === 'user-location';
 
     // 好友资料变更追踪（2026-08-19）：friend-update 推送完整 user 对象
@@ -359,7 +384,7 @@ export class EventPipeline {
       // 用户 2026-09-22 报「信任等级 … 天天刷」根因：WS 的 user 载荷**可能缺 tags**，
       // 此时若回落到载荷里的 trust_level 字段（VRChat 的部分/过时字段），会把权威值
       // （逐好友 GET /users/{id} → tags 推导，见 friend-refresh.js）覆盖回旧等级，
-      // 于是「升级 → 被覆盖 → 下次轮询再报升级」振荡（生产实证：某位好友/另一位好友
+      // 于是「升级 → 被覆盖 → 下次轮询再报升级」振荡（生产实证：晴天时雨/无敌只因哥哥
       // 库里停在 Known User，而事件里已升 Trusted User）。⇒ 只认 tags 推导；无 tags 视为
       // 未知：既不 diff 也不回写，避免把好数据写坏。
       const trust = trustFromTags(userObj.tags) || '';
@@ -513,11 +538,8 @@ export class EventPipeline {
         // unknown ⇒ 沿用旧判据（解析器未注入 / 404 / 异常时行为完全不变）
         // 🔴 2026-09-27 用户报障（生产 id 18104/18105 同一毫秒、同一文件 file_a2d7f291…）：
         //   该文件 tags 含 icon ⇒ 解析器判「用户图标」，而同一推送的 currentAvatarImageUrl 也是它 ⇒
-        //   上一层已按模型变动产出一条 avatar，这里又补一条 user_icon ⇒ 动态流「同时」两行 ✗。
-        //   ⇒ 证据优先级：**载荷内的文件同一性压过 tags 结论**（同一文件的模型图证据是本次推送自带的、
-        //     比文件的 tags 更贴近「这次到底改了什么」；tags 判 icon 只在它与模型图不是同一文件时才作数）✓
-        // 只用【本次推送自带】的模型图证据（不含已存基线 prev.avatar_image_url）：
-        //   基线可能本身就是被误存成模型图的用户图标 ⇒ 那种情况仍按 tags 纠偏（见同文件反向纠偏用例）
+        //   上一层已按模型变动产出一条 avatar，这里又补一条 user_icon ⇒ 动态流同时两行 ✗。
+        //   ⇒ 证据优先级：本次推送自带的模型图证据压过 tags 结论（不含已存基线：基线可能本身就被误存）✓
         // ⚠️（审查 EMeowAGENT 第六轮）：`avatarBanner` 档下 `avatarImageUrlFromUser` 就是把 iconUrl 当模型图
         //   ⇒ 这一档里「本次载荷的模型图证据」与 icon **同源** ⇒ `iconIsModelImageNow` 恒真，
         //   效果等价于既有的「avatarBanner ⇒ 不产 user_icon」门禁（代价＝该档下真实的用户图标变更也不报，
@@ -529,7 +551,8 @@ export class EventPipeline {
         ].filter(Boolean);
         const iconIsModelImageNow = !!iconFileId && modelFileIdsNow.includes(iconFileId);
         const iconChanged = iconIsModelImageNow ? false
-          : (iconKind === 'icon' ? iconDiffers : (iconKind === 'model' ? false : iconChangedLegacy));
+          : (iconKind === 'icon' ? iconDiffers
+            : (iconKind === 'model' ? false : iconChangedLegacy));
         if (iconChanged) {
           changes.push({ type: 'user_icon', payload: { userIcon: newUserIcon, previousUserIcon: prev.user_icon || '' } });
         }
@@ -541,7 +564,7 @@ export class EventPipeline {
 
         // 信任等级（2026-09-15 用户报障）：此前五类资料变更都跟踪、唯独漏了 trust_level——
         // 且回写也不带 trustLevel → 好友等级变化既无事件、基线也永远不更新（生产实证：
-        // 好友A已升 Trusted User，库内仍停 Known User）。VRChat 的 user 对象
+        // XIAOFANG小芳已升 Trusted User，库内仍停 Known User）。VRChat 的 user 对象
         // 携带 trust_level（LimitedUser 字段），与其它字段同源 diff 即可。
         const trustChanged = prev.trust_level && trust
           && (prev.trust_level || '') !== trust;

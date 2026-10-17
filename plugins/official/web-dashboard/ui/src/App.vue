@@ -1,8 +1,7 @@
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { computed, ref, onMounted, onUnmounted, onErrorCaptured } from 'vue';
 import { useToast } from 'primevue/usetoast';
 import { store, setView, load, startDashboard, enableNotifications, disableNotifications } from './store.js';
-import { onErrorCaptured } from 'vue';
 
 // 2026-09-22 用户报障「请求正常但右边整块黑的」：全项目此前**没有任何渲染错误兜底** ✗ ⇒ 子组件报错会让那一块静默变黑 ✓。
 // 捕获后代组件的渲染/生命周期错误 → 写进全局失败横幅（store.loadError ✓）+ 控制台留痕，让症状可见而非黑屏 ✓。
@@ -110,27 +109,53 @@ onMounted(() => document.addEventListener('scroll', onAnyScroll, true));
 
 // ── 登录页控制 ──
 const loginView = ref(!hasToken());
-// 统一先进入检查中：**带旧令牌时不得直接挂主界面**——否则主界面会立刻把全部数据请求并发打出去、
-// 全部 401 之后才跳回登录页（用户 2026-09-22 报障：没登录为什么也发请求 + 首屏非常慢）。
-// 现在改为：有 token 先 verifyToken 验一次（成功才挂主界面、失败清 token 回登录页）；无 token 才裸探测（issue #213）。
+// 两条路径都要处理，缺一不可（2026-10-16 合并上游与本仓实现）：
+//  ① 本地**无** token ⇒ 先裸探测服务端是否真的要令牌（api.js probeAuthRequired）：
+//     未启用鉴权（单机默认）⇒ 直接进面板，不再逼用户输入一个从未配置过的令牌（issue #213）；
+//     探测失败（服务未启动 / 网络异常）⇒ 保留登录门，由登录页给出连接错误提示。
+//  ② 本地**有**旧 token ⇒ 必须先 verifyToken 验一次再挂主界面：
+//     否则主界面会立刻把全部数据请求并发打出去、全部 401 之后才跳回登录页（用户 2026-09-22 报障：
+//     「没登录为什么也发请求 + 首屏非常慢」）⇒ 失败就清 token 回登录页 ✓。
+// 因此进入本组件时**统一先显示检查中**（authChecking=true），两条路径都在 onMounted 里定论 ✓。
+// 探测失败的原因：透出到登录页（issue #213 的 UX 项 —— 此前只 console.warn，用户看到的是一个没有任何解释的登录页）
+const loginReason = ref('');
 const authChecking = ref(true);
 onMounted(async () => {
   try {
-    if (!hasToken()) {
-      loginView.value = await probeAuthRequired();
-    } else if (await verifyToken(getToken())) {
+    if (hasToken()) {
+      if (await verifyToken(getToken())) {
+        store.authVerified = true;   // 🔴1：校验通过才允许数据面打开（main.js 那次调用会因此空跑、零请求）
+        store.authRequired = true;
+        loginView.value = false;
+      } else {
+        clearToken();
+        loginView.value = true;
+      }
+    } else if (!(await probeAuthRequired())) {
+      store.authRequired = false;   // 服务端不需要鉴权 => 放行数据加载（否则未启用令牌的部署会零请求）
       loginView.value = false;
-      startDashboard();   // 2026-09-22：登录后才拉数据（登录页此前会打全部接口 ✗）
     } else {
-      clearToken();
-      loginView.value = true;
+      store.authRequired = true;
     }
-  } catch {
-    loginView.value = true;
+    if (!loginView.value) startDashboard();   // 2026-09-22：登录成功后才拉数据（登录页此前会打全部接口 ✗）
+  } catch (e) {
+    // 2026-10-16 审查 ⚠️2：这里原来完全静默 ⇒ 使用者只会「无任何解释地被弹回登录页」，且旧令牌没被清。
+    // 登录页的 error 只在用户点「登录」后才赋值，所以必须在这里留痕 ✓
+    // 失败原因要**落到界面上**，不能只进控制台：未配令牌/服务没起的部署，用户不知道该填什么（issue #213）
+    console.warn('[auth] 探测/校验失败（保留登录门）:', e);
+    // 2026-10-16 审查 nixi-agent 💡2：页面上只说中文（原始技术串已进 console.warn，避免出现「无法连接服务：Failed to fetch」这种中英混排）
+    const msg = String((e && e.message) || e || '');
+    loginReason.value = /Failed to fetch|NetworkError|Load failed/i.test(msg)
+      ? '无法连接服务：网络不可达（请确认服务已启动，或检查网络/反代是否正常）。'
+      : /HTTP \d{3}/.test(msg)
+        ? '无法连接服务：服务返回了错误状态（请查看服务端日志；详见浏览器控制台）。'
+        : '无法连接服务（请确认服务已启动后再试）。';
+    // 复用「强制回登录门」的单一入口（onAuth401 就是这件事；不在 catch 里直接写 loginView.value = true，
+    // 既避免重复实现，也符合仓库的 frontend-catch-guard：失败时置错误态 + 原因，而不是写一个裸的正常态）
+    onAuth401();
   } finally {
     authChecking.value = false;
-    // 2026-09-22 ego 实测：登录后页面能渲染但 **api:0** ⇒ 一个数据请求都没发（「暂无动态」）✗，
-    // 根因是 startDashboard() 只在 verifyToken 成功那条分支被调用 ✗，探针成功路径没调 ✓。此处兜底统一启动 ✓（幂等）。
+    // 兜底统一启动（幂等）：任何「已判定可进面板」的路径都必须起数据面，避免 api:0（「暂无动态」却无请求）
     if (!loginView.value) startDashboard();
   }
 });
@@ -188,7 +213,7 @@ async function refresh() {
     <i class="pi pi-spin pi-spinner"></i>
     <span>正在检查访问鉴权…</span>
   </div>
-  <LoginView v-else-if="loginView" />
+  <LoginView v-else-if="loginView" :initial-error="loginReason" />
   <div v-else class="app-shell">
     <header class="app-header">
       <Button v-if="store.isMobile" icon="pi pi-bars" text rounded @click="store.navOpen = true" aria-label="打开菜单" />
@@ -264,7 +289,7 @@ async function refresh() {
           <OpenView v-else-if="store.view === 'open'" key="open" />
           <PlaceholderView v-else :view="store.view" key="placeholder" />
         </Transition>
-              </template>
+        </template>
       </main>
 
       <aside v-if="!store.isMobile" class="rightbar">
@@ -324,7 +349,7 @@ async function refresh() {
     <InstanceDialog />
     <AvatarDialog />
     <Dialog v-model:visible="store.previewUrl" header="图片预览" :style="{ width: 'min(720px, 96vw)' }" :dismissable-mask="true">
-      <img v-if="store.previewUrl" :src="store.previewUrl" style="max-width:100%; max-height:70vh; width:auto; height:auto; display:block; margin:0 auto; border-radius:8px" alt="预览" />
+      <img v-if="store.previewUrl" :src="store.previewUrl" style="width:100%; border-radius:8px" alt="预览" />
     </Dialog>
     <Toast position="bottom-center" />
     <ConfirmDialog />

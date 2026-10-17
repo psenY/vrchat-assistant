@@ -5,7 +5,6 @@ import { time, date, dateTime, avatarLabel , reltime, statusLabels, trustColor, 
 import { statusColor } from '../composables/useFriendGroups.js';
 import { openUser } from '../store.js';
 import { toast } from '../toast.js';
-import { confirm } from '../confirm.js';
 
 // 非好友追踪（VRCX-Luo 对齐）：历史非好友 + 手动添加追踪的用户，
 // 服务端每小时拉取资料/头像并记录 bio/status 变化（events 表 friend-update + source=poll）。
@@ -89,18 +88,6 @@ async function addDirectId() {
   }
 }
 
-// ── 移除追踪 ──
-async function removeTracked(x) {
-    if (!await confirm({ message: `确认移除对「${x.displayName || x.userId}」的追踪？其变化历史保留，但不再自动刷新。`, header: '移除追踪', acceptLabel: '移除' })) return;
-  try {
-    const r = await post('/api/dashboard/tracked/remove', { userId: x.userId });
-    if (r && r.error) throw new Error(r.error);
-    toast('已移除追踪', 'success');
-    await load();
-  } catch (e) {
-    toast('移除失败：' + (e.message || e), 'error');
-  }
-}
 
 // ── 刷新 ──
 async function refreshNow() {
@@ -155,40 +142,7 @@ const filtered = computed(() => {
 
 const trackedCount = computed(() => (items.value || []).length);
 
-// ── 备注编辑（tracked memo，≤200 字符；空串=清除）──
-const memoDialog = ref(false);
-const memoTarget = ref(null);      // { userId, displayName }
-const memoDraft = ref('');
-const memoSaving = ref(false);
 const memoOf = (x) => String(x && x.memo || '').trim();
-function openMemo(x) {
-  memoTarget.value = { userId: x.userId, displayName: x.displayName || x.userId };
-  memoDraft.value = memoOf(x);
-  memoDialog.value = true;
-}
-async function saveMemo() {
-  if (!memoTarget.value || memoSaving.value) return;
-  memoSaving.value = true;
-  try {
-    const r = await post('/api/dashboard/tracked/memo', { userId: memoTarget.value.userId, memo: memoDraft.value });
-    if (!r || r.ok !== true) throw new Error((r && r.error) || '保存失败');
-    const it = (items.value || []).find((x) => x.userId === memoTarget.value.userId);
-    if (it) it.memo = String(r.memo || '');
-    // review #173：updated:false = 行已被并发移除（权威兜底/手动移除），本地不误报成功文案
-    if (r.updated === false) {
-      toast('该用户已不在追踪列表，备注未生效', 'info');
-      memoDialog.value = false;
-    } else {
-      toast(memoOf(it) ? '备注已保存' : '备注已清除', 'success');
-      memoDialog.value = false;
-    }
-    memoDialog.value = false;
-  } catch (e) {
-    toast('备注保存失败：' + (e.message || e), 'error');
-  } finally {
-    memoSaving.value = false;
-  }
-}
 
 // 变化时间线类型筛选（全部/头像/简介/状态）
 const changeFilter = ref('all');
@@ -317,14 +271,15 @@ onMounted(load);
         <!-- 2026-09-22 用户：「先把这一页按好友页的样式统一」✓ —— 行结构与样式对齐 FriendsView 的 .friend-card：
              Avatar + .fc-text（名字 → 备注 → uid/状态 → 最近变化·上次检测），动作区右推在本行末尾 ✓ -->
         <!-- 2026-09-22 用户：把好友页的整个样式抄过来 ✓；多出来的信息与按钮**先不加** ✓（由用户决定怎么加）
-             因此本卡＝好友页 .friend-card 的等价物：头像 + 名字 + 备注 + 状态，无资料/移除/展开/最近变化 ✓ -->
+             因此本卡＝好友页 .friend-card 的等价物：头像 + 名字 + 备注 + 状态；**展开入口保留**（2026-10-16 审查 🔴1 恢复），
+             资料/移除入口迁到 UserDialog（卡片内不再放这两个按钮）✓ -->
         <div class="friend-card" role="button" tabindex="0" @click="openUser(x.userId)" @keydown.enter="openUser(x.userId)">
           <Avatar :image="x.avatarUrl || ''" :label="avatarLabel(x.avatarUrl, x.displayName)" shape="circle" />
           <div class="fc-text">
             <b :style="{ color: trustColor(x.trustLevel) }" :title="x.trustLevel ? ('信任等级：' + x.trustLevel) : ''">{{ x.displayName || x.userId }}</b><!-- 2026-09-22：非好友现在也有信任等级了（来自 tags ✓）⇒ 名字配色自动生效 ✓ + 悬停可看等级名 ✓（与好友页口径一致 ✓）-->
             <small><span class="fc-dot" :style="statusDotStyle(x.location)"></span>{{ x.statusDescription || statusText(x.status) }}<i v-if="platformIcon(x.platform)" class="pi fc-plat" :class="platformIcon(x.platform)" :title="platformLabel(x.platform)"></i><!-- 2026-09-22 用户报「平台图标是乱码」✗：漏了 pi（图标字体基础类）与 fc-plat（尺寸样式）⇒ 渲染成豆腐块 ✓；现与好友页写法完全一致 ✓ --></small>
             <small v-if="memoOf(x)" class="fc-memo" :title="memoOf(x)">{{ memoOf(x) }}</small>   <!-- 2026-09-22 用户：备注行放到在线行下面 ✓ -->
-<small class="tk-meta">
+<small>
                           <span v-if="lastChangeAt(x)">变化 {{ reltime(lastChangeAt(x)) }}</span><!-- 2026-09-22 用户：卡片一行放不下「上次资料变化」⇒ 用短的「变化」✓（弹窗空间够，那边保留全称 ✓） -->
                           <span v-if="lastChangeAt(x) && x.lastRefreshAt">·</span>
                           <span v-if="x.lastRefreshAt">上次检测 {{ fmtRefresh(x.lastRefreshAt) }}</span>
@@ -332,7 +287,13 @@ onMounted(load);
                         </small>
             
           </div>
-        </div>
+                  <!-- 2026-10-16（审查 🔴1）：恢复展开入口 —— 卡片点击已改为「打开资料」，若不给展开留入口，`expanded` 永不置位 ⇒ 变化时间线与类型筛选（以及 /api/dashboard/tracked-changes）整体不可达 ✗ -->
+          <Button class="tk-expand" size="small" text rounded
+            :icon="expanded === x.userId ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
+            :title="expanded === x.userId ? '收起变化历史' : '展开变化历史'"
+            :aria-label="expanded === x.userId ? '收起变化历史' : '展开变化历史'"
+            @click.stop="toggle(x.userId)" />
+</div>
         <!-- 展开：变化时间线 -->
         <div v-if="expanded === x.userId" class="tk-detail">
           <div v-if="loadingChanges === x.userId" class="loading-mini"><ProgressSpinner style="width:22px;height:22px" strokeWidth="4" /></div>
@@ -423,25 +384,7 @@ onMounted(load);
 .ta-name { font-size: 13px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ta-sub { font-size: 11px; color: var(--text-dim); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.tk-list { display: flex; flex-direction: column; gap: 6px; }
 .tk-item { display: flex; flex-direction: column; gap: 3px; }
-.tk-row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border-soft); cursor: pointer; text-align: left; width: 100%; color: inherit; font-family: inherit; transition: border-color 0.12s; }
-.tk-row:hover, .tk-row.open { border-color: var(--accent); }
-.tk-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.tk-info { min-width: 0; flex: 1; }
-.tk-name { font-size: 13px; display: flex; align-items: center; gap: 6px; overflow: hidden; }
-.tk-name { white-space: nowrap; text-overflow: ellipsis; }
-.tk-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
-.tk-statusline { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.tk-status { font-size: 10px; color: var(--text-dim); border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; line-height: 16px; flex: none; }
-.tk-status.on { color: #52c41a; border-color: rgba(82, 196, 26, 0.4); }
-.tk-sub { font-size: 11px; color: var(--text-dim); display: flex; flex-direction: row; align-items: center; flex-wrap: nowrap; gap: 8px; overflow: hidden; white-space: nowrap; }
-.tk-uid { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-.tk-stat { color: var(--accent); display: inline; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
-.tk-stat { color: var(--accent); flex: none; }
-.tk-stat-dim { color: var(--text-dim); }
-.tk-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
-.tk-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; flex: none; }
 
 .tk-detail { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px 12px; margin-left: 34px; }
 .tk-empty { font-size: 12px; color: var(--text-dim); padding: 6px 2px; }
@@ -455,27 +398,20 @@ onMounted(load);
 .tc-card { min-width: 0; flex: 1; background: var(--surface); border: 1px solid var(--border-soft); border-radius: 8px; padding: 7px 9px; }
 .tc-body { margin-top: 5px; display: flex; flex-direction: column; gap: 3px; }
 /* 状态变更行：对齐动态页（FeedView）状态灯视觉，横排 [旧灯]→[新灯] 签名 */
-.tc-statusrow { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.tc-slamp { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: none; box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 12%, transparent); border: 1.5px solid rgba(0,0,0,0.35); }
-.tc-sarr { color: var(--text-dim); font-size: 11px; flex: none; }
-.tc-sdesc { color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tc-sdesc.dim { color: var(--text-dim); font-weight: 400; }
-.tk-memotag { font-size: 10px; vertical-align: 2px; margin-left: 4px; }
-.tk-memohint { color: var(--text-dim); display: block; margin-top: 4px; }
 .tc-avatars { display: flex; align-items: center; gap: 8px; }
 .tc-avpair { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .tc-av { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; }
 .tc-avnone { display: flex; align-items: center; justify-content: center; background: var(--surface-2); font-size: 10px; color: var(--text-dim); }
 .tc-avlabel { font-size: 10px; color: var(--text-dim); }
 .tc-avarrow { color: var(--text-dim); font-size: 11px; }
-.tc-old { color: var(--text-dim); text-decoration: line-through; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tc-new { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .loading-mini { display: flex; justify-content: center; padding: 12px; }
 @media (max-width: 899px) {
   .tk-search { width: 100%; order: 2; }
   .tk-tools { order: 3; }
   .tk-detail { margin-left: 0; }
+  /* 2026-10-16 审查 ⚠️1：这条来自 main（原第 495 行），本轮重构时漏还原 ⇒ 窄屏下长 bio/状态旧值
+     从「换行」退化成「单行省略号截断」= 信息可见性下降，已还原 ✓ */
   .tc-old, .tc-new { white-space: normal; }
 }
 
@@ -485,6 +421,9 @@ onMounted(load);
 /* 1) 筛选 chip 行：允许换行、均匀间距，避免「头像」被拆成孤字 */
 .tc-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .tc-chip { white-space: nowrap; }
+.tk-expand { flex: none; margin-left: auto; }
+/* 2026-10-16（审查 3）：.tk-expand 就在 Button 根元素上 ⇒ 后代选择器匹配不到自身 ✓ */
+.tk-expand.p-button { padding: 2px 6px; }
 /* 2) 时间列：等宽数字 + 稍宽，时间与内容对齐 */
 .tc-rail { width: 86px; font-variant-numeric: tabular-nums; }
 .tc-rail b, .tc-rail strong { font-size: 12.5px; color: var(--text); }
@@ -492,13 +431,10 @@ onMounted(load);
 /* 3) 内容列：占满剩余宽度、正文用主文本色（旧值仍为 dim + 删除线）*/
 .tc-body { flex: 1; min-width: 0; color: var(--text); }
 .tc-body > * { min-width: 0; }
-.tc-new { color: var(--text); }
 /* 4) 头像对：统一 24px 圆角，与全站 .av-thumb 一致 */
-.tc-avpair { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .tc-av { width: 24px; height: 24px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border-soft); }
 .tc-avnone { display: inline-flex; align-items: center; justify-content: center; font-size: 10px; color: var(--text-dim); }
 .tc-avlabel { font-size: 9px; color: var(--text-dim); }
-.tc-avarrow { color: var(--text-dim); }
 /* 5) 卡片：与其它列表一致的分隔与悬停反馈 */
 .tc-card { border: 1px solid var(--border-soft); border-radius: var(--radius); }
 .tc-card:hover { border-color: var(--border); }
@@ -510,26 +446,11 @@ onMounted(load);
 /* 2026-09-22 用户：有备注和没备注的块高度不一样 ✗ => 去掉我自加的 align-items:start，
    与好友页 .fg-body 完全一致（默认 stretch = 同一行卡片自动等高 ✓）*/
 .tk-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; }
-@media (max-width: 900px) { .tk-list { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 640px) { .tk-list { grid-template-columns: 1fr; } }
-.tk-item:has(.tk-row.open) { grid-column: 1 / -1; }
+/* 2026-10-16（审查 2）：原写法引用已消失的 .tk-row.open ⇒ 永不命中、展开详情被挤在单列；改为按 .tk-detail 命中 ✓ */
+.tk-item:has(.tk-detail) { grid-column: 1 / -1; }
 
 /* ── tk-sub-oneline-2026-09-22（用户：「最近变化和上次检测可以放到一行吧？」）───────────
    元信息强制单行、超出省略；动作按钮随行尾对齐 ✓ */
-.tk-sub { display: flex; align-items: center; flex-wrap: nowrap; overflow: hidden; white-space: nowrap; gap: 6px; }
-.tk-sub > * { flex: none; }
-.tk-uid { overflow: hidden; text-overflow: ellipsis; max-width: 210px; }
-.tk-sep { color: var(--text-dim); }
-.tk-row .tk-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; flex: none; }
-
-/* ── tk-memoline-2026-09-22（用户：「备注是在下面单开一行」）──────────────────
-   备注独占一行：淡底 + 细边框 + 铅笔小图标；可点击编辑；长备注换行不撑破卡片 ✓ */
-.tk-memoline { display: flex; align-items: flex-start; gap: 6px; margin-top: 6px;
-  padding: 4px 8px; border-radius: 6px; background: var(--surface-2);
-  border: 1px solid var(--border-soft); color: var(--text-dim); font-size: 12px; cursor: pointer; }
-.tk-memoline:hover { border-color: var(--border); color: var(--text); }
-.tk-memoline > i { font-size: 11px; margin-top: 2px; }
-.tk-memotext { white-space: pre-wrap; word-break: break-word; }
 
 /* ── friend-page-2026-09-22（用户：「先按好友页的样式统一」）──────────────────
    以下 6 条与 FriendsView.vue:242-258 **完全一致**（同变量同数值 ✓），仅作用域在本组件 ✓ */
@@ -540,89 +461,9 @@ onMounted(load);
 .fc-text small { color: var(--text-dim); font-size: 11px; display: flex; align-items: center; gap: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fc-memo { display: block; font-size: 10px; color: var(--accent); opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; cursor: pointer; }
 /* 增量：动作区右推（好友页卡内没有动作按钮 ✓）*/
-.tk-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; flex: none; }
 /* ==== 以下样式整块抄自 FriendsView（用户 2026-09-22 要求「整个样式都抄过来」） ==== */
 
-.fv-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.ft-spacer { flex: 1; }
 /* 搜索框与右侧好友栏搜索统一 32px；几何全写死不随字体加载伸缩 */
-.fv-search {
-  max-width: 240px;
-  width: 100%;
-  height: 32px;
-  min-height: 32px;
-  max-height: 32px;
-  line-height: 1;
-  padding-top: 0;
-  padding-bottom: 0;
-  font-size: 12.5px;
-}
-.fg { margin-bottom: 14px; }
-.fg-thumb {
-  width: 22px;
-  height: 22px;
-  object-fit: cover;
-  border-radius: 5px;
-  flex: none;
-}
-.fg-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-dim);
-  padding: 5px 8px;
-  margin-bottom: 6px;
-  border-left: 3px solid var(--border);
-  cursor: pointer;
-  user-select: none;
-  border-radius: 4px;
-  transition: background 0.1s, color 0.1s;
-}
-.fg-head:hover { background: var(--surface-2); color: var(--text); }
-.fg-head.accent { color: var(--accent); border-left-color: var(--accent); }
-.fg-arrow { flex: none; font-size: 9px; opacity: 0.7; margin-left: 2px; }
-.fg-count { margin-left: auto; flex: none; font-size: 10.5px; color: var(--text-dim); background: var(--surface-3); padding: 1px 7px; border-radius: 10px; }
-.fg-mixed {
-  font-size: 11px;
-  color: var(--text-dim, #8a93a3);
-  white-space: nowrap;
-}
-.fg-loc {
-  font-size: 10.5px;
-  color: var(--text-dim);
-  background: var(--surface-3);
-  border: 1px solid var(--border);
-  padding: 0 7px;
-  border-radius: 8px;
-  flex: 0 1 auto;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 42%;
-  min-width: 0;
-}
-.fg-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; }
-.friend-card {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
-}
-.friend-card:hover { background: var(--surface-2); border-color: var(--border); }
-.fc-text { min-width: 0; }
-.fc-text b { display: block; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fc-text small { color: var(--text-dim); font-size: 11px; display: flex; align-items: center; gap: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fc-memo { display: block; font-size: 10px; color: var(--accent); opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-.fc-loc { display: block; font-size: 10px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; cursor: pointer; }
-.fc-loc:hover { color: var(--accent); }
-.fc-loc i { font-size: 8px; }
 .fc-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; transform: translateY(1px); }
 .fc-plat {
   flex: none;
@@ -633,20 +474,9 @@ onMounted(load);
 }
 .fc-plat:hover { color: var(--text); }
 @media (max-width: 899px) {
-  .fg-body { grid-template-columns: 1fr 1fr; }
-  /* 移动端：tab 与搜索框换行，搜索框独占一行全宽（此前被 5 个 tab 挤压到 74px 不可用） */
-  .fv-toolbar { flex-wrap: wrap; row-gap: 8px; }
-  .fv-toolbar .p-selectbutton, .fv-toolbar .p-selectbutton > * { max-width: 100%; }
-  .fv-search { max-width: none; flex: 1 1 100%; order: 3; }
-  /* C1/C2：触屏目标加大 + 字号提升 */
-  .fg-head { padding: 8px 9px; }
-  .fg-head > span:nth-child(2) { font-size: 12.5px; }
   .friend-card { padding: 10px 11px; }
   .fc-text b { font-size: 13px; }
   .fc-text small { font-size: 11.5px; }
-}
-@media (max-width: 560px) {
-  .fg-body { grid-template-columns: 1fr; }
 }
 
 
@@ -656,4 +486,13 @@ onMounted(load);
 .tk-list > .tk-item { display: flex; flex-direction: column; }
 .tk-list > .tk-item > .friend-card { height: 100%; }
 
+
+/* 2026-10-16（审查 1 修正）：机械清理时误删了这些**仍被模板引用**的定义（.tc-slamp / .tc-sdesc / .tc-old / .tc-new / .tc-statusrow / .tc-sarr）⇒ 从 main 原样还原。教训：「已用类」的提取必须覆盖动态来源 ✓ */
+.tc-slamp { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: none; box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 12%, transparent); border: 1.5px solid rgba(0,0,0,0.35); }
+.tc-sdesc { color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tc-sdesc.dim { color: var(--text-dim); font-weight: 400; }
+.tc-old { color: var(--text-dim); text-decoration: line-through; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-new { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-statusrow { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tc-sarr { color: var(--text-dim); font-size: 11px; flex: none; }
 </style>

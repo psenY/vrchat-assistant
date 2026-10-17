@@ -5,7 +5,7 @@
 //
 // 用法（需要先有一个开着调试端口的 Chrome/Edge，默认 9222）：
 //   node scripts/ui-view-tour.mjs                      # 用默认地址与视图清单
-//   DASH_URL=https://vrc.psen.cc/dashboard node scripts/ui-view-tour.mjs
+//   DASH_URL=https://<你的面板域名>/dashboard node scripts/ui-view-tour.mjs
 //   CDP_PORT=9222 node scripts/ui-view-tour.mjs
 // 判据：任一视图出现「子节点 0 / 文本为空 / .render-err / 失败横幅」⇒ 退出码 1 ✓
 //
@@ -23,7 +23,7 @@ async function main() {
     targets = await r.json();
   } catch (e) {
     console.error('无法连接调试端口', PORT, '-', e.message);
-    console.error('提示：先启动带 --remote-debugging-port 的浏览器（或 DSH 的 ego 浏览器）');
+    console.error('提示：先启动带 --remote-debugging-port 的 Chromium（Chrome/Edge），并保持已有登录态');
     process.exit(2);
   }
   const page = (targets || []).find((t) => t.type === 'page');
@@ -48,13 +48,25 @@ async function main() {
   };
   await send('Page.enable'); await send('Runtime.enable');
 
-  // 2026-09-22：先确认已登录 —— 未登录时每个视图都是同一屏（实测 kids=1 len=83 全一样 ✗）
-  // 不加这道检查会得到"假绿"：什么都没验到却报全部通过 ✓
-  const auth = await evalJs("(document.body.innerText || \"\").includes(\"访问令牌\") ? \"login\" : (document.body.innerText.includes(\"AUTH OK\") ? \"ok\" : \"unknown\")");
-  if (auth !== 'ok') {
-    console.error('✗ 页面不是已登录状态（判定: ' + auth + '）—— 巡回结果不可信，请先在浏览器里登录后再跑 ✓');
-    process.exit(2);
+  // 2026-10-16（审查方 🔴 修正）：原判据用的是私有部署的状态栏文案 "AUTH OK" ✗ —— 该字面量在
+  // 本仓库的产物 dist/index.html 里 0 命中 ⇒ 已登录页面也判 unknown ⇒ 恒 exit(2)、巡回从不执行。
+  // 改用**仓库真实可判定**的标志：登录页才有「访问令牌」文案；已登录时主视图容器 .main-viewport 存在。
+  // 另提供 TOUR_SKIP_AUTH_CHECK=1 显式跳过（未提供时保持 fail-fast，避免"什么都没验到却报全绿"）✓
+  const auth = await evalJs(`(() => {
+    const t = document.body.innerText || "";
+    if (t.includes("访问令牌")) return "login";
+    if (document.querySelector(".main-viewport")) return "ok";
+    return "unknown";
+  })()`);
+  if (auth !== "ok") {
+    if (process.env.TOUR_SKIP_AUTH_CHECK === "1") {
+      console.warn("⚠ 登录态判定为 " + auth + "，但 TOUR_SKIP_AUTH_CHECK=1 ⇒ 跳过前置检查继续巡回（结果需自行甄别）");
+    } else {
+      console.error("✗ 页面不是已登录状态（判定: " + auth + "）—— 巡回结果不可信，请先在浏览器里登录后再跑；确要强跑可设 TOUR_SKIP_AUTH_CHECK=1 ✓");
+      process.exit(2);
+    }
   }
+
   const rows = [];
   let bad = 0;
   for (const v of VIEWS) {
