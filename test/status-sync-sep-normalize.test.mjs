@@ -8,7 +8,7 @@
  * 复审（nixi + EMeowAGENT）指出同类路径：①模板字面量里的 | 也没做等价；②~ 只在一侧归一；
  * ③「他人改写」检测仍是裸比较。本文件对四处都加护栏。
  *
- * 变异自证：去掉等价字符类 ⇒ 用例 1/2/4 红；sameStatus 退回 a === b ⇒ 用例 3/5 红。
+ * 变异自证（实测）：把 escapeReEq 退化为 escapeRe ⇒ 用例 1/2/4/5 红；把 sameStatus 退回 a === b ⇒ 用例 3/5 红。
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';

@@ -45,7 +45,7 @@ function cut(s, n) {
 
 function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
-/** 等价转义：VRChat 会把半角 | 存成全角 ｜（~ 同理）⇒ 模板里的这些字面量也要按等价类匹配 */
+/** 等价转义：VRChat 会把半角 | 存成全角 ｜（本机库 140 条样本实测）；~ 按同一规律**假设**也会被规范化（本机库暂 0 条样本，非实测）⇒ 模板里的这些字面量一并按等价类匹配 */
 function escapeReEq(s) {
   return Array.from(String(s)).map((ch) => {
     if (ch === "|" || ch === "｜") return "[|｜]";
@@ -254,7 +254,8 @@ export class DynamicStatusSync {
 
     // 与「未变化」判定同口径：按规范化比较（VRChat 会把 | 存成 ｜）；裸比较会把自己的写入误判成「别人在打字」
     if (cfg.mode === "suffix" && this._lastSent && !sameStatus(remote, this._lastSent) && !sameStatus(remote, target)) {
-      if (this._foreignText !== remote) {
+      // 与其它比较同口径：宽度差异（| vs ｜）不算「不同的文字」，否则同一次冲突会被数成两笔
+      if (!sameStatus(this._foreignText, remote)) {
         this._foreignText = remote;
         this._foreignAt = now;
         this._foreignCount += 1;
