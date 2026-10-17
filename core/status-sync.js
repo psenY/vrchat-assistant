@@ -65,7 +65,6 @@ export function normalizeStatusText(s) {
   return String(s == null ? "" : s).replace(/｜/g, "|").replace(/～/g, "~");
 }
 
-
 /** 把后缀模板编译成"能认出我们上次写的那截尾巴"的正则（锚定结尾，占位符→数字） */
 export function suffixPattern(template) {
   const body = String(template == null ? "" : template).trim();
@@ -91,6 +90,7 @@ export function stripSuffix(text, template, separator = DEFAULT_SEPARATOR) {
   let out = String(text == null ? "" : text);
   const sep = String(separator == null ? DEFAULT_SEPARATOR : separator);
   if (!re) return out.trim();
+  const sepRe = sep ? new RegExp(escapeReEq(sep) + "\\s*$") : null;   // 循环外构造一次（复审 💡）
   for (let i = 0; i < SUFFIX_MAX_STRIP; i++) {
     const m = re.exec(out);
     if (!m) break;
@@ -98,7 +98,6 @@ export function stripSuffix(text, template, separator = DEFAULT_SEPARATOR) {
     // 只认【我们自己写进去的那个分隔符】（含其后的空白）—— 原先还接受「任意结尾空白」✗：
     // 那会把使用者正文里凑巧同形的结尾（如「欢迎 在线 5 人」）整段吃掉（审查方独立探针实测 ✗）。
     // 分隔符里可能有被 VRChat 规范化过的字符（半角 | → 全角 ｜）⇒ 按等价类匹配
-    const sepRe = sep ? new RegExp(escapeReEq(sep) + "\\s*$") : null;   // 循环外构造一次（复审 💡）
     if (m.index > 0) {
       if (!sepRe || !sepRe.test(before)) break;
       out = before.replace(sepRe, '');
