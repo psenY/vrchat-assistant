@@ -366,10 +366,13 @@ export function registerDashboardServices(loader, ctx) {
       }
     } catch { /* 无表则空 */ }
     const prevLocCache = new Map();
-    // 「从哪来」：向前回溯找上一个**真实世界**位置。
+    // 「从哪来」：向前回溯最多 25 条，取**紧邻的上一个位置**（纯值特殊位置也算）。
     // VRChat 换房前几乎总先推一条 traveling（也是 friend-location 类型），若只取上一条事件，
     // 到达行的 prev 几乎都是 traveling（无 world 对象，名字为空）→「从哪」永远显示不出来（用户反馈）。
-    // 规则：回溯最多 25 条，跳过 traveling/offline 行，取第一条带世界的位置；
+    // 三条判据彼此不同，别混成一句（2026-10-18 复审 EMeow R5 指出块首与行内都在说旧语义）：
+    //   ① traveling ⇒ **跳过**、继续往前找（它没有地点，跳过不改变「紧邻」的含义）；
+    //   ② offline / offline:offline ⇒ **终止**回溯、返回 null（上一刻不在游戏里 ⇒ 没有「从哪」，本 PR 的核心修复）；
+    //   ③ 其余位置 ⇒ **就是答案本身**，不论有没有世界信息（纯值 private / local / … 照此；未知纯值前端无标签 ⇒ 左端整块隐藏）。
     // 同世界重进的行（prev==当前世界）由前端 previousWorldName !== worldName 条件自然隐藏。
     // 兼容迁移数据（顶层 worldName）与实时数据（world 对象）两种字段形态。
     const previousLocationOf = (userId, eventId) => {
@@ -397,14 +400,27 @@ export function registerDashboardServices(loader, ctx) {
           // 精确匹配会漏 ⇒ prev 落在没有 world 对象的那条上 ⇒ 左端「从哪」的世界名/图全空。
           // 用户 2026-10-17 定：左端只显示**紧邻的上一个位置**，不得为了凑名字回退到更早的世界。
           if (!loc || loc.startsWith('traveling')) continue;   // traveling 没有地点，继续往前找
-          if (loc === 'offline' || loc === 'offline:offline') return null;   // 上一刻离线 ⇒ 没有「从哪」
+          // 上一刻离线 ⇒ 没有「从哪」。用 break 而不是 return：负结果与正结果一样走循环后的 prevLocCache.set。
+          // ⚠️ 复审 nixi 💡1 纠正过我的理由：key 是 userId:eventId、且 prevLocationOf 每行只调一次，
+          //    所以 break **并不省扫描次数**（他实测两种变体相同）；这里只为「缓存写入路径统一」，
+          //    不要把「同页多行各重复扫一遍」当理由写进注释。
+          if (loc === 'offline' || loc === 'offline:offline') { prev = null; break; }
           const worldId = cj.world?.id || (loc.startsWith('wrld_') ? loc.split(':')[0] : '');
           // 缓存优先（与右端同口径）⇒ 私人房也能显示世界名与缩略图
           const cachedName = row.wc_name || '';
           const cachedImage = row.wc_image || '';
           // 与右端 COALESCE(NULLIF(wc.name, ''), e.world_name, '') 字面对齐：缓存 -> 事件列 -> 载荷（载荷层为左端独有兜底）
           const worldName = cachedName || row.e_world_name || cj.world?.name || cj.worldName || '';
-          if (!worldName && !worldId) continue;
+          if (!worldName && !worldId) {
+            // 判据是**「任何取不到世界信息的非 traveling/offline 位置」**，不只是已知的那几个纯值：
+            // 除 private / local / friends / group（生产里私人房是主导形态），未知形态（如 mystery / hidden）
+            // 也走这条 —— 它们同样是「紧邻的上一个位置」，跳过就会回退到更早的世界名，
+            // 与「左端只认紧邻的上一个位置」直接冲突（2026-10-18 复审 nixi ⚠️1）。
+            // 已知代价（有意取舍）：未知纯值没有中文标签 ⇒ 前端 prevLocationLabel 为空 ⇒ 左端整块隐藏；
+            // 这比「编造一个更早的世界名」正确，但将来出现新特殊值形态时会静默少一段左端 —— 要支持就补 specialLocationLabel 的映射。
+            prev = { location: loc, worldName: '', worldId: '', worldImageUrl: '' };
+            break;
+          }
           prev = {
             location: loc,
             worldName,
@@ -629,10 +645,10 @@ export function registerDashboardServices(loader, ctx) {
         bio: content.bio || user.bio || '',
         previousBio: content.previousBio || '',
         userIcon: imgProxy(content.userIcon || user.userIcon || user.iconUrl || ''),
-        // 2026-09-22 用户报障「为什么会有没头像的（散华ln 非好友）」——实测：该用户 status 事件的载荷里
+        // 2026-09-22 用户报障「为什么会有没头像的（某非好友）」——实测：该用户 status 事件的载荷里
         // `avatarImageUrl` **就是空串** ✗（WS 没带图），所以本块即使拼了 avatarUrl 也不会有图 ✓。
         // 正解：回退到「该 userId **最近一次带图的事件**」（数据就在 events 表里 ✓ 不需要发 API ✓），带进程内缓存 + 负缓存 ✓。
-        // 2026-09-22 用户报障「为什么会有没头像的（散华ln 非好友，半天也不加载）」：
+        // 2026-09-22 用户报障「为什么会有没头像的（某非好友，半天也不加载）」：
         // 本块（profile 变更）**此前没有 avatarUrl** ✗，而前端 playerAvatarOf 优先读 avatarUrl ⇒ 非好友行头像空白 ✓。
         // 数据其实就在事件载荷里（status 事件自带 avatarImageUrl ✓）—— 不是「没加载」，是没被拼进去 ✓。
         avatarUrl: avatarOf(row.userIcon || user.userIcon, row.avatarUrl || content.avatarImageUrl || user.currentAvatarImageUrl)

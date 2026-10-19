@@ -7,7 +7,7 @@
  * 自包含：手写最小 fake api（db / vrchat.fetch / consume 全为可断言的替身），
  * 不触网、不写生产库。
  */
-import { test, beforeEach, afterEach } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import register, {
   decideAction,
@@ -100,7 +100,6 @@ test('isWithinCooldown：manual 直通，未写过不算冷却，间隔内算冷
   assert.equal(isWithinCooldown({ lastApplyAt: 0, now }), false);
   assert.equal(isWithinCooldown({ lastApplyAt: now - 70_000, now }), false);
 });
-
 
 // ── register 行为 ─────────────────────────────────────────────────────────
 test('register：注册两个工具并返回 dispose', () => {

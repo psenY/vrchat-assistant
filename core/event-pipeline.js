@@ -377,6 +377,9 @@ export class EventPipeline {
     // ⚠️ 自防御（审查 💡4）：本判据基于「事件类型」= user-* ⇒ 自己。若上游将来对好友也推 user-update，
     //   这里会跳过 upsertFriend / _syncProfileFromEvent ⇒ 静默丢资料。届时须改为按 userId === selfId 判定 ✓
     const isSelfUpdate = event.type === 'user-update' || event.type === 'user-location';
+    // 自己的内存基线快照：在 if (userObj) 块内算，**diff 与落库完成之后**才真正写入 _selfSnap（见函数末尾）。
+    // 声明在函数级是因为写入点在 if (userObj) 块之外（复审 💡1：diff 抛异常时基线不得推进）。
+    let nextSelfSnap = null;
 
     // 好友资料变更追踪（2026-08-19）：friend-update 推送完整 user 对象
     // （currentAvatarImageUrl/bio/statusDescription/userIcon/pronouns 等），
@@ -389,7 +392,7 @@ export class EventPipeline {
       // 用户 2026-09-22 报「信任等级 … 天天刷」根因：WS 的 user 载荷**可能缺 tags**，
       // 此时若回落到载荷里的 trust_level 字段（VRChat 的部分/过时字段），会把权威值
       // （逐好友 GET /users/{id} → tags 推导，见 friend-refresh.js）覆盖回旧等级，
-      // 于是「升级 → 被覆盖 → 下次轮询再报升级」振荡（生产实证：晴天时雨/无敌只因哥哥
+      // 于是「升级 → 被覆盖 → 下次轮询再报升级」振荡（生产实证：两位好友
       // 库里停在 Known User，而事件里已升 Trusted User）。⇒ 只认 tags 推导；无 tags 视为
       // 未知：既不 diff 也不回写，避免把好数据写坏。
       const trust = trustFromTags(userObj.tags) || '';
@@ -406,18 +409,23 @@ export class EventPipeline {
       const prev = isSelfUpdate
         ? (memSnap || this._selfUpdateBaseline(userId, event.receivedAt))
         : this.storage.getFriend(userId);
-      // 处理完立刻记住最新快照：下一次由另一类载体触发 diff 时用它当基线，避免同一次变更记两遍
-      if (isSelfUpdate && userObj) {
-        this._selfSnap.set(userId, {
-          user_id: userId,
-          user_icon: userObj.iconUrl || userObj.userIcon || '',
-          avatar_image_url: avatarImageUrlFromUser(userObj),
-          status: userObj.status || '',
-          status_description: userObj.statusDescription || '',
-          bio: userObj.bio || '',
-          pronouns: userObj.pronouns || '',
-        });
-      }
+      // 自己的「最新快照」：下一次由另一类载体触发 diff 时用它当基线，避免同一次变更记两遍。
+      // ⚠️（2026-10-18 复审 EMeowAGENT ⚠️2）只覆盖**载荷里确实带了的**字段，缺字段沿用上一条快照 ——
+      //   否则一次「带 user 但不带图标信息」的 location 会把基线写成空串/undefined，下一次真实换模型
+      //   就被空基线吞掉（复审实测：main 记 1 条、无条件覆写的版本记 0 条 ⇒ 静默丢事件）。
+      //   与本文件既有纪律一致：avatarImageUrlFromUser / userIconUrlFromUser 取不到返回 undefined（保持原值），
+      //   bio 按 hasBioField 判「没带这个键」而不是「值为空」。
+      // 💡1：真正的 .set 延到 diff 与落库全部完成之后（见本函数末尾 selfSnap 落点），diff 抛异常时基线不推进。
+      const prevSnapForMerge = isSelfUpdate ? (this._selfSnap.get(userId) || {}) : null;
+      if (isSelfUpdate) nextSelfSnap = {
+        user_id: userId,
+        user_icon: userIconUrlFromUser(userObj) ?? prevSnapForMerge.user_icon ?? '',
+        avatar_image_url: avatarImageUrlFromUser(userObj) ?? prevSnapForMerge.avatar_image_url ?? '',
+        status: userObj.status ?? prevSnapForMerge.status ?? '',
+        status_description: userObj.statusDescription ?? prevSnapForMerge.status_description ?? '',
+        bio: hasBioField ? (userObj.bio || '') : (prevSnapForMerge.bio ?? ''),
+        pronouns: userObj.pronouns ?? prevSnapForMerge.pronouns ?? '',
+      };
       if (prev && prev.user_id) {
         const changes = [];
         // ⭐ 2026-09-26（审查 🔴 同类问题）：同一个文件的不同 URL 形态（…/1/256 ↔ …/1/512）不应算作「换了模型」——
@@ -582,7 +590,7 @@ export class EventPipeline {
 
         // 信任等级（2026-09-15 用户报障）：此前五类资料变更都跟踪、唯独漏了 trust_level——
         // 且回写也不带 trustLevel → 好友等级变化既无事件、基线也永远不更新（生产实证：
-        // XIAOFANG小芳已升 Trusted User，库内仍停 Known User）。VRChat 的 user 对象
+        // 好友A已升 Trusted User，库内仍停 Known User）。VRChat 的 user 对象
         // 携带 trust_level（LimitedUser 字段），与其它字段同源 diff 即可。
         const trustChanged = prev.trust_level && trust
           && (prev.trust_level || '') !== trust;
@@ -668,6 +676,10 @@ export class EventPipeline {
     // 注：上方 L297 已写过同批字段，此处为防御性补漏——若将来主写入路径收窄/字段缺项，
     // 非空字段仍会被补齐（无 user 对象时跳过，不影响既有值）。
     if (!isSelfUpdate) this._syncProfileFromEvent(userId, userObj);
+
+    // 自己的内存基线：**diff 与落库全部完成之后**才推进（复审 💡1：diff 抛异常时基线不推进，
+    // 否则会「基线已前进、事件没落库」= 静默丢一条真实变更）。
+    if (nextSelfSnap) this._selfSnap.set(userId, nextSelfSnap);
 
     if (opts.storeRawEvent !== false) this._storeEvent(event);
   }
