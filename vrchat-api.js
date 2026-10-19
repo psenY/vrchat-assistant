@@ -26,7 +26,14 @@ const REQUEST_TIMEOUT_MS = 30000;
 // 只对 GET（幂等）重试；POST/PUT/DELETE 一律不重试（写操作重复执行有副作用）。
 const IDEMPOTENT_RETRY_MAX = 2;
 const IDEMPOTENT_RETRY_DELAY_MS = 400;
-const IDEMPOTENT_RETRY_BUDGET_MS = 45000; // 重试总预算：超过就不再重试，避免长时间占住限流队列
+// 重试链总预算（可用 VRC_MONITOR_API_RETRY_BUDGET_MS 覆盖，测试用）。
+// ⚠️ 必须 **小于** RateLimiter 的任务超时（默认 45s）：否则调用方先被判超时、
+//    重试仍在后台跑 ⇒ 孤儿请求，且这次失败不会进 _apiStats（观测口径丢事件）。
+const IDEMPOTENT_RETRY_BUDGET_MS = 40000;
+function retryBudgetMs() {
+  const v = parseInt(process.env.VRC_MONITOR_API_RETRY_BUDGET_MS, 10);
+  return Number.isFinite(v) && v > 0 ? v : IDEMPOTENT_RETRY_BUDGET_MS;
+}
 
 // 慢调用阈值（毫秒，代码常量不走 env）：成功但耗时超过该值 → 升格 INFO 可见
 const API_SLOW_MS = 2000;
@@ -77,7 +84,7 @@ function apiBase() {
   return base;
 }
 
-// 请求超时运行时读取：VRC_MONITOR_API_TIMEOUT_MS 为测试开关（生产默认 15000ms）
+// 请求超时运行时读取：VRC_MONITOR_API_TIMEOUT_MS 为测试开关（生产默认 30000ms）
 function requestTimeoutMs() {
   const v = parseInt(process.env.VRC_MONITOR_API_TIMEOUT_MS, 10);
   return Number.isFinite(v) && v > 0 ? v : REQUEST_TIMEOUT_MS;
@@ -166,31 +173,45 @@ export class VrchatApiClient {
    * 注意：认证端点自身（/auth/user、/auth、twofactorauth）不走此逻辑，
    * 避免 ensureAuth / checkAuth 内部形成递归。
    */
+  /**
+   * 原始请求 + 幂等重试（只有 GET 重试；401 重认证后的重放也走这条，见 _request）。
+   * 预算判据必须把「下一次尝试自身的超时」算进去：只判已耗时会排出「调用方已超时、
+   * 重试仍在后台跑」的孤儿请求，且那次失败不进 _apiStats（nixi-agent 在 #311 实测到该形态）。
+   */
+  async _requestRawWithRetry(method, path, body = null, customCookies = null) {
+    const startedAt = Date.now();
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const res = await this._requestRaw(method, path, body, customCookies);
+        if (attempt > 0) {
+          log.info(`${method} ${normalizeApiPath(path)} 重试成功（第 ${attempt} 次重试，累计 ${Date.now() - startedAt}ms）`);
+        }
+        return { res, durationMs: Date.now() - startedAt, attempts: attempt + 1 };
+      } catch (err) {
+        const elapsed = Date.now() - startedAt;
+        const canRetry = method === 'GET' && isTransientApiError(err)
+          && attempt < IDEMPOTENT_RETRY_MAX
+          // 关键：把下一次尝试的超时也算进预算，避免「调用方已超时、重试才刚发出」
+          && (elapsed + requestTimeoutMs()) <= retryBudgetMs();
+        if (!canRetry) {
+          err._apiElapsedMs = elapsed;
+          throw err;
+        }
+        // 瞬时失败也留痕（INFO）：否则「为什么多花了 N 秒」在日志里看不出来
+        log.info(`${method} ${normalizeApiPath(path)} 瞬时失败，${IDEMPOTENT_RETRY_DELAY_MS}ms 后重试（第 ${attempt + 1}/${IDEMPOTENT_RETRY_MAX} 次）：${String(err.message || err).replace(/[\r\n]+/g, ' ').slice(0, 120)}`);
+        await new Promise((r) => setTimeout(r, IDEMPOTENT_RETRY_DELAY_MS * (attempt + 1)));
+      }
+    }
+  }
+
   async _request(method, path, body = null, customCookies = null) {
     const startedAt = Date.now();
     let res;
-    let retries = 0;
-    for (;;) {
-      try {
-        res = await this._requestRaw(method, path, body, customCookies);
-        if (retries > 0) {
-          log.info(`${method} ${normalizeApiPath(path)} 重试成功（第 ${retries} 次重试，累计 ${Date.now() - startedAt}ms）`);
-        }
-        break;
-      } catch (err) {
-        const transient = isTransientApiError(err);
-        const canRetry = method === 'GET' && transient
-          && retries < IDEMPOTENT_RETRY_MAX
-          && (Date.now() - startedAt) < IDEMPOTENT_RETRY_BUDGET_MS;
-        if (!canRetry) {
-          this._recordApiResult(method, path, { error: err, durationMs: Date.now() - startedAt });
-          throw err;
-        }
-        retries++;
-        // 瞬时失败也留痕（INFO）：否则「为什么多花了 N 秒」在日志里看不出来
-        log.info(`${method} ${normalizeApiPath(path)} 瞬时失败，${IDEMPOTENT_RETRY_DELAY_MS}ms 后重试（第 ${retries}/${IDEMPOTENT_RETRY_MAX} 次）：${String(err.message || err).replace(/[\r\n]+/g, ' ').slice(0, 120)}`);
-        await new Promise((r) => setTimeout(r, IDEMPOTENT_RETRY_DELAY_MS * retries));
-      }
+    try {
+      ({ res } = await this._requestRawWithRetry(method, path, body, customCookies));
+    } catch (err) {
+      this._recordApiResult(method, path, { error: err, durationMs: err._apiElapsedMs ?? (Date.now() - startedAt) });
+      throw err;
     }
     if (res.status === 401 && !customCookies && !this._isAuthEndpoint(path)) {
       // 首次 401 是真实失败请求：先留痕，再尝试自动重认证并重放
@@ -201,7 +222,8 @@ export class VrchatApiClient {
           const replayAt = Date.now();
           let replayed;
           try {
-            replayed = await this._requestRaw(method, path, body, customCookies);
+            // 重放也走同一条重试封装：认证刚恢复、链路仍在抖动的窗口恰恰最需要它
+            ({ res: replayed } = await this._requestRawWithRetry(method, path, body, customCookies));
           } catch (err) {
             this._recordApiResult(method, path, { error: err, durationMs: Date.now() - replayAt });
             throw err;

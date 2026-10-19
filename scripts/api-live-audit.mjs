@@ -67,10 +67,10 @@ async function probe(name, p, logPath) {
       : String(d).slice(0, 30);
     results.push({ name, status: String(r.status), info, path: logPath });
   } catch (e) {
-    // 客户端超时为 15s（vrchat-api.js REQUEST_TIMEOUT_MS），据此还原"超时"信号——
+    // 客户端 socket 空闲超时为 30s（vrchat-api.js REQUEST_TIMEOUT_MS），据此还原"超时"信号——
     // 不再从 e.message 里取（那会带回请求路径）
-    const slow = Date.now() - startedAt >= 14000;
-    results.push({ name, status: 'THROW', info: slow ? '超时(≥14s)' : errorKind(e), path: logPath });
+    const slow = Date.now() - startedAt >= 29000;
+    results.push({ name, status: 'THROW', info: slow ? '超时(≥29s)' : errorKind(e), path: logPath });
   }
   await new Promise(r => setTimeout(r, 400));
 }
