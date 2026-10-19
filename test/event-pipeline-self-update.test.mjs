@@ -89,8 +89,11 @@ const locRows = (loc) => storage.query(
   { $u: UID, $l: loc })[0].n;
 
 test('🔴 换模型（同实例 user-location + 新 iconUrl）⇒ 记「模型变动」且不产重复位置行（用户 2026-09-28 报障「换模型被显示为换地图」）', async () => {
-  const before = countOf('avatar');
+  // 2026-10-18 复审 ⚠️2 之后：内存基线只覆盖「载荷确实带了的字段」⇒ 前一条非 avatarBanner 推送**不再清空**模型图基线
+  // （这是修 bug 的必然结果）。所以这里不能再假设「第一条 location 之前基线是空的」——改成以**第一条之后**为基准，
+  // 断言真正要保的不变量：同实例重复推送时，模型图变化**恰好记一条**、且不落第二条位置行。
   await pipeline.process(locEvent(MODEL_A, LOC_SAME, at(0)));
+  const before = countOf('avatar');
   await pipeline.process(locEvent(MODEL_B, LOC_SAME, at(1)));
   assert.equal(countOf('avatar') - before, 1, '同实例重发 + iconUrl 变 ⇒ 必须记 1 条模型变动');
   assert.equal(locRows(LOC_SAME), 1, '同实例重复不得落第二条位置行（否则动态流显示成「换地图」）');
@@ -163,10 +166,48 @@ test('同一次换模型被两类载体各推一次 ⇒ 只记一条（用户 20
   const loc = (icon, at) => ({ type: 'user-location', userId: UID, displayName: 'psenY7', receivedAt: at,
     content: { userId: UID, user: { id: UID, displayName: 'psenY7', iconUrl: icon, bannerType: 'avatarBanner' } } });
   const t0 = Date.now();
-  // 生产形态：定位载体的 diff 走 storeRawEvent:false（不落原始行）⇒ 库里基线仍是旧的
+  // ⚠️（2026-10-18 复审 EMeowAGENT ⚠️1 纠正）：本条直接给两类载体都传 storeRawEvent:false 只是**构造**旧基线，
+  //   生产上真正让「库里基线仍是旧的」的机制是**同实例重复 location 被去重、原始行不落库**
+  //   （user-update 的原始行照落）。所以本条不算生产形态的覆盖 —— 生产形态由下面那条 process() 驱动的用例负责。
   await pipeline._handleUpdateInner(loc(MODEL_C, new Date(t0 + 1000).toISOString()), { storeRawEvent: false });
   assert.equal(countOf('avatar') - before, 1, '第一次应记 1 条');
   // 30 秒后另一条载体重发同一份新资料：必须用「刚处理过的那份」当基线，不得再记
   await pipeline._handleUpdateInner(loc(MODEL_C, new Date(t0 + 31000).toISOString()), { storeRawEvent: false });
   assert.equal(countOf('avatar') - before, 1, '同一份新资料不得再记一条（基线要用内存里最新的那份，而不是库里更早的旧快照）');
+});
+
+// ── 2026-10-18 复审（EMeowAGENT @ #304）⚠️1 / ⚠️2 的回归 ──────────────────
+// 用独立 uid + process()（生产入口）构造，避免与上面的共享基线互相干扰。
+const UID2 = 'usr_self-0000-0000-0000-000000000002';
+const UID3 = 'usr_self-0000-0000-0000-000000000003';
+const LOC2 = 'wrld_99999999-9999-9999-9999-999999999999:77777~private(usr_self)~region(jp)';
+const now = (deltaSec) => new Date(Date.now() + deltaSec * 1000).toISOString();
+const avatarOf = (uid) => storage.query(
+  "SELECT COUNT(*) n FROM events WHERE user_id = $u AND json_extract(content_json,'$.type') = 'avatar'",
+  { $u: uid })[0].n;
+const locOf = (uid, icon, loc, atIso) => ({
+  type: 'user-location', userId: uid, displayName: 'psenY7', location: loc, receivedAt: atIso,
+  content: { userId: uid, location: loc, instance: {}, travelingToLocation: '',
+    user: icon ? { id: uid, displayName: 'psenY7', iconUrl: icon, bannerType: 'avatarBanner' } : { id: uid, displayName: 'psenY7' } },
+});
+const updOf = (uid, icon, atIso) => ({
+  type: 'user-update', userId: uid, displayName: 'psenY7', receivedAt: atIso,
+  content: { userId: uid, user: { id: uid, displayName: 'psenY7', iconUrl: icon, bannerType: 'avatarBanner' } },
+});
+
+test('生产形态（process 入口）：同实例 location 被去重后，另一载体重发同一张图仍只记一条', async () => {
+  await pipeline.process(locOf(UID2, MODEL_A, LOC2, now(-40)));          // 首次：只建基线
+  await pipeline.process(locOf(UID2, MODEL_A, LOC2, now(-35)));          // 同实例重复 ⇒ 原始行被去重
+  const rows = storage.query("SELECT COUNT(*) n FROM events WHERE user_id = $u AND type = 'user-location'", { $u: UID2 })[0].n;
+  assert.equal(rows, 1, '前置：同实例重复不得落第二条原始行（这正是生产上基线仍旧的原因）');
+  await pipeline.process(updOf(UID2, MODEL_A, now(-5)));                 // 另一载体重发同一张图
+  assert.equal(avatarOf(UID2), 0, '同一张图被两类载体各推一次，不得记模型变动');
+});
+
+test('⚠️2 回归：载荷不带图标信息的 location 不得清空内存基线（否则下一次真实换模型被吞掉）', async () => {
+  await pipeline.process(updOf(UID3, MODEL_A, now(-60)));                // 基线 = MODEL_A
+  await pipeline.process(locOf(UID3, null, LOC2, now(-50)));             // 带 user 但不带 icon 信息（真实形态）
+  await pipeline.process(locOf(UID3, null, LOC2, now(-45)));             // 再来一条，仍然没有图标信息
+  await pipeline.process(updOf(UID3, MODEL_B, now(-10)));                // 真实换模型
+  assert.equal(avatarOf(UID3), 1, '空基线会把这次真实换模型吞掉（复审实测 0 条）；修好后必须记 1 条');
 });
