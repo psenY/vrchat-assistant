@@ -18,7 +18,15 @@ const API_BASE = 'https://api.vrchat.cloud/api/1';
 
 // 单个 VRChat API 请求的 socket 超时（毫秒）。正常请求 1-3s 返回，
 // 网络抖动/代理失效时若不加超时，挂起的请求会锁死 rateLimiter 队列。
-const REQUEST_TIMEOUT_MS = 15000;
+// 2026-10-19：链接间歇性劣化（实测到 api.vrchat.cloud 的请求 3.7~8.7s、偶发 >15s 停滞）时，
+// 15s 会把「慢但能成」的请求判死；抬到 30s（仍是 socket 空闲超时，正常请求 1-3s 不受影响）。
+const REQUEST_TIMEOUT_MS = 30000;
+
+// 幂等 GET 的瞬时失败重试：链路偶发卡顿时，一次 stall 不该让整轮认证/对账直接失败。
+// 只对 GET（幂等）重试；POST/PUT/DELETE 一律不重试（写操作重复执行有副作用）。
+const IDEMPOTENT_RETRY_MAX = 2;
+const IDEMPOTENT_RETRY_DELAY_MS = 400;
+const IDEMPOTENT_RETRY_BUDGET_MS = 45000; // 重试总预算：超过就不再重试，避免长时间占住限流队列
 
 // 慢调用阈值（毫秒，代码常量不走 env）：成功但耗时超过该值 → 升格 INFO 可见
 const API_SLOW_MS = 2000;
@@ -76,6 +84,12 @@ function requestTimeoutMs() {
 }
 
 // 按 URL 协议选择请求模块：生产 https；测试 stub 可用 http://
+/** 瞬时链路故障判定：超时 / 连接被重置 / DNS 暂时失败 —— 这类值得对幂等 GET 重试一次。 */
+export function isTransientApiError(err) {
+  const msg = String((err && err.message) || err || '');
+  return /超时|timeout|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EPIPE|EAI_AGAIN|socket hang up|ENETUNREACH|EHOSTUNREACH/i.test(msg);
+}
+
 function pickRequestLib(url) {
   return url.protocol === 'http:' ? http : https;
 }
@@ -155,11 +169,28 @@ export class VrchatApiClient {
   async _request(method, path, body = null, customCookies = null) {
     const startedAt = Date.now();
     let res;
-    try {
-      res = await this._requestRaw(method, path, body, customCookies);
-    } catch (err) {
-      this._recordApiResult(method, path, { error: err, durationMs: Date.now() - startedAt });
-      throw err;
+    let retries = 0;
+    for (;;) {
+      try {
+        res = await this._requestRaw(method, path, body, customCookies);
+        if (retries > 0) {
+          log.info(`${method} ${normalizeApiPath(path)} 重试成功（第 ${retries} 次重试，累计 ${Date.now() - startedAt}ms）`);
+        }
+        break;
+      } catch (err) {
+        const transient = isTransientApiError(err);
+        const canRetry = method === 'GET' && transient
+          && retries < IDEMPOTENT_RETRY_MAX
+          && (Date.now() - startedAt) < IDEMPOTENT_RETRY_BUDGET_MS;
+        if (!canRetry) {
+          this._recordApiResult(method, path, { error: err, durationMs: Date.now() - startedAt });
+          throw err;
+        }
+        retries++;
+        // 瞬时失败也留痕（INFO）：否则「为什么多花了 N 秒」在日志里看不出来
+        log.info(`${method} ${normalizeApiPath(path)} 瞬时失败，${IDEMPOTENT_RETRY_DELAY_MS}ms 后重试（第 ${retries}/${IDEMPOTENT_RETRY_MAX} 次）：${String(err.message || err).replace(/[\r\n]+/g, ' ').slice(0, 120)}`);
+        await new Promise((r) => setTimeout(r, IDEMPOTENT_RETRY_DELAY_MS * retries));
+      }
     }
     if (res.status === 401 && !customCookies && !this._isAuthEndpoint(path)) {
       // 首次 401 是真实失败请求：先留痕，再尝试自动重认证并重放
