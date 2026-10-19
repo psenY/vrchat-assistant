@@ -26,7 +26,7 @@ export class RateLimiter {
     this.maxQueueSize = options.maxQueueSize || 50;
     // 任务级超时兜底：>0 时单个任务超过该时长即 reject，防止死任务锁死队列。
     // 默认 45000ms；taskTimeoutMs=0 表示关闭该兜底。
-    // 2026-10-19（#311 复审）：必须**大于** API 客户端的请求/重试链最坏耗时（socket 30s + 重试预算 40s），
+    // 2026-10-19（#311 复审）：必须**大于** API 客户端重试链的最坏耗时（上界 ≈ 重试预算 40s + 退避 ≤0.8s；
     // 否则会出现「调用方被限流器判超时、重试仍在后台跑」的孤儿请求，且那次失败不进 _apiStats。
     this.taskTimeoutMs = options.taskTimeoutMs ?? 45000;
     this._lastCallTime = 0;

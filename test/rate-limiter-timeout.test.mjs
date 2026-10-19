@@ -105,7 +105,7 @@ test('rateLimiter per-task 超时覆盖：显式更小预算会提前 reject', a
 test('vrchat-api.js：全部底层请求站点均配置 req.setTimeout 超时兜底', () => {
   const src = readFileSync(path.join(REPO, 'vrchat-api.js'), 'utf8');
   // R1 起请求站点为协议分流的 lib.request(options, ...)（生产 https / 测试 http stub），
-  // 超时调用为 requestTimeoutMs()（VRC_MONITOR_API_TIMEOUT_MS 测试开关，默认 15000ms）
+  // 超时调用为 requestTimeoutMs()（VRC_MONITOR_API_TIMEOUT_MS 测试开关，默认 30000ms）
   const requestSites = [...src.matchAll(/lib\.request\(options/g)].length;
   const setTimeoutSites = [...src.matchAll(/req\.setTimeout\(requestTimeoutMs\(\)/g)].length;
 
