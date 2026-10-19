@@ -7,7 +7,7 @@
  *
  * 断言：①等级变化 → 插入 friend-update trust_level 事件 + 回写新等级（基线更新 →
  *   第二次刷新不再重复报）；②未变化不报；③仅非空字段回写（空值不清空已有）；
- *   ④tags 推导优先（字段滞后/缺失时以 system_trust_* 为准，小芳实测场景）；
+ *   ④tags 推导优先（字段滞后/缺失时以 system_trust_* 为准，好友A 实测场景）；
  *   ⑤API 失败仅记 WARN 不抛、继续处理；⑥每周期上限（MAX_PER_CYCLE）。
  */
 import { test } from 'node:test';

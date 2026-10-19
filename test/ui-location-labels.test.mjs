@@ -39,7 +39,30 @@ test('位置行左端必须走 prevLabelOf（私人房 → 私人房间 那一�
   assert.match(feed, /function prevLabelOf\(/, 'FeedView 必须定义 prevLabelOf');
   assert.match(feed, /prevLabelOf\(x\)/, 'FeedView 模板必须使用 prevLabelOf');
   assert.match(feed, /function curIsWorld\(/, 'FeedView 必须定义 curIsWorld');
-  assert.match(feed, /specialLocationLabel\(e\.previousLocation\)/, 'prevLabelOf 必须对 previousLocation 走 specialLocationLabel');
+  // 2026-10-18：判据抽到 utils.prevLocationLabel（纯函数，行为断言见 test/location-labels-pure.test.mjs）——
+  // 这里钉「那一半仍接在同一个函数里」，不再钉内联实现。
+  assert.match(feed, /prevLocationLabel\(e\.previousLocation, e\.previousWorldName\)/, 'prevLabelOf 必须委托 utils.prevLocationLabel（「私人房间」兜底在里面）');
+  assert.match(utils, /export function prevLocationLabel\(/, 'utils 必须导出 prevLocationLabel');
+  assert.match(utils, /prevLocationLabel[\s\S]{0,500}私人房间/, 'prevLocationLabel 必须保留「私人房间」兜底（删掉它会退化成「整块不渲染」而没人红）');
+});
+
+test('位置行目的地：private/invite 实例且无世界名 ⇒ 模板渲染「私人房间」（不是 "VRChat"）', () => {
+  assert.match(feed, /function destPrivate\(/, '必须定义 destPrivate');
+  assert.match(feed, /destPrivate\(x\)/, '模板必须用 destPrivate 兜底目的地文案');
+  assert.match(feed, /destPrivate\(x\)[\s\S]{0,80}?私人房间/, 'destPrivate 命中时渲染的文案必须是「私人房间」');
+});
+
+test('位置行左端：私人/仅邀请房间必须**优先**渲染「私人房间」，不得被 previousWorldId 分支抢走（复审 ⚠️1）', () => {
+  // 2026-10-18 复审 ⚠️1 的真缺陷：纯函数返回「私人房间」证明不了用户看到什么 ——
+  // 模板若先判 x.previousWorldId（私人实例同样有 worldId、世界名又能从 world_cache 取到），
+  // 渲染出来的就是世界名。所以这里钉**顺序**：prevPrivate 分支的索引必须早于 previousWorldId 分支。
+  const iPrivate = feed.indexOf('v-if="prevPrivate(x)"');
+  const iWorld = feed.indexOf('v-else-if="x.previousWorldId"');
+  assert.ok(iPrivate > 0, '左端必须存在 prevPrivate(x) 的「私人房间」分支');
+  assert.ok(iWorld > 0, '左端应保留 previousWorldId → 世界名 的链接分支');
+  assert.ok(iPrivate < iWorld, '私人房分支必须排在 previousWorldId 之前（否则拿到世界名就显示世界名，定案失效）');
+  assert.match(feed, /function prevPrivate\(e\)/, '必须定义 prevPrivate（与 destPrivate 共用 isPrivateInstance）');
+  assert.match(feed, /isPrivateInstance\(/, '两端判据必须走 utils.isPrivateInstance（不要再各写一份 parseLoc 判断）');
 });
 
 test('位置行左端必须渲染【图 + 世界名 + 实例信息】—— 不得按目的地类型把左端降级成纯文本（2026-09-24 用户定案「公开房间那侧要显示图像世界名和房间号」）', () => {
