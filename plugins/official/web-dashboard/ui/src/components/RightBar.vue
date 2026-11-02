@@ -138,7 +138,7 @@ async function submitStatus() {
         </div>
         <span v-if="statusError" class="mp-error">{{ statusError }}</span>
         <div class="mp-row">
-          <input v-model="desc" placeholder="状态描述（可选）…" maxlength="32" class="mp-input" @keydown.enter="submitStatus()" />
+          <input v-model="desc" placeholder="状态描述（可选）…" aria-label="自定义状态描述" maxlength="32" class="mp-input" @keydown.enter="submitStatus()" />
           <Button icon="pi pi-check" size="small" rounded text :disabled="applyingStatus" :aria-label="'提交状态'" @click="submitStatus()" />
         </div>
       </div>

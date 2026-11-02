@@ -150,7 +150,7 @@ onUnmounted(() => {
       <div class="lv-chips" role="group" aria-label="日志来源标签筛选">
         <button v-for="n in NAMES" :key="n.v" class="chip" :class="{ active: nameSel === n.v }" @click="setName(n.v)">{{ n.l }}</button>
       </div>
-      <input class="lv-q" type="text" placeholder="关键词…" v-model="qSel" @input="onQInput" />
+      <input class="lv-q" type="text" placeholder="关键词…" aria-label="按关键词筛选日志" v-model="qSel" @input="onQInput" />
     </div>
 
     <div v-if="src === 'file' && fileExists === false" class="lvhint">

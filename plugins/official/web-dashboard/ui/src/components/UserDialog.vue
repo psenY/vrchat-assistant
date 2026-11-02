@@ -304,7 +304,7 @@ const rawJson = computed(() => {
             <div v-if="!isFriend" class="fact fact-wide">
               <span>本地备注</span>
               <span class="memo-cell">
-                <input v-model="memoDraft" class="memo-input" placeholder="给这个人加个备注…" @keydown.enter="saveMemo" />
+                <input v-model="memoDraft" class="memo-input" placeholder="给这个人加个备注…" aria-label="给这位玩家加备注" @keydown.enter="saveMemo" />
                 <Button label="保存" size="small" :loading="memoSaving" @click="saveMemo" />
               </span>
             </div>
