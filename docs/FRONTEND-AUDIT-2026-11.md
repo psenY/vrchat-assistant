@@ -226,6 +226,35 @@ placeholder 保留作视觉提示。（另 4 个 radio/checkbox 在 `<label>` �
 
 ---
 
+## 第七轮已修（2026-11-02）
+
+### 16. 弹窗切换对象的异步竞态（旧响应覆盖新对象）
+
+点开 A 的详情 → 未等响应就点开 B → A 的响应更晚到达 ⇒ **A 的资料写进 B 的弹窗**，
+用户看到「B 的名字 + A 的资料」。`loadProfile` / `loadEvents` 原在 `await` 后直接赋值，无身份校验。
+
+新增 `utils/seq-guard.js`：`isCurrent` 同时校验**序号**（挡同对象乱序）与**业务键 userId**
+（挡对象已切换）。`loading` 只在最新一次请求里收尾。
+
+### 一次失败的测试尝试（记下来避免重复投入）
+
+最初写的「挂载 UserDialog + 可控延迟的 get 桩」集成测试**走不通**：组件渲染依赖
+Dialog/Tabs/TabList/TabPanel/Button/Avatar/Tag/InputText/ProgressSpinner 一整套桩，
+缺一个就 `Unhandled error during execution of render function`，断言拿到空串 ——
+**那测的不是竞态，是桩的完整度**。补了三轮桩仍未过，果断放弃该形态。
+
+改为：纯函数单测（5 条）+ **读源码的接线护栏（3 条）**。后者不可省 ——
+纯函数测试只能证明守卫本身对，不能证明它真被用上（本仓有过「函数写了没接线」的先例）。
+变异（绕过 `guard.begin`）⇒ 接线用例精确变红。
+
+### 全仓同类问题登记（本次未改）
+
+「`await` 后直接写状态、无 seq/取消判据」共 **69 处**（WorldDialog 11 / UserDialog 8 已修 /
+FavoritesView 7 / PrintsView 6 / TrackedView 5 …）。多数字段级刷新影响有限，
+本次只修影响最直接的一处（弹窗对象频繁切换）；其余按需再处理，避免一次性大改。
+
+---
+
 ## 未修复（按性价比排序，供后续排期）
 
 | # | 问题 | 量化 | 建议 |
