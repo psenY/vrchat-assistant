@@ -169,7 +169,7 @@ onMounted(load);
       <span class="pr-count">{{ tab === 'prints' ? 'VRChat Plus 照片' : '资料展示图' }}</span>
       <Button size="small" icon="pi pi-upload" :loading="uploading" :label="tab === 'prints' ? '上传' : '上传'" :title="tab === 'prints' ? '上传照片到 VRChat Plus 相册' : '上传图片到 VRChat Plus 画廊'" @click="pickImage" />
       <input ref="fileInput" type="file" accept="image/*" class="hidden-file" aria-hidden="true" @change="onFileChosen" />
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" aria-label="刷新" />
     </div>
 
     <div v-if="tab === 'prints' && worldChips.length" class="ws-chips" role="group" aria-label="按世界筛选">

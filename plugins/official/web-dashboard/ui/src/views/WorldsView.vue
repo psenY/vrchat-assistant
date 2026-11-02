@@ -78,7 +78,7 @@ onMounted(load);
         <button v-for="s in SORTS" :key="s.v" class="chip" :class="{ active: sortBy === s.v }" @click="setSort(s.v)">{{ s.l }}</button>
       </div>
       <span class="ws-count">最近去过的世界</span>
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="reload" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="reload" aria-label="刷新" />
     </div>
 
     <!-- 好友地图统计：好友群体最近 N 天去过的世界热度（发现好玩的图） -->
@@ -105,7 +105,7 @@ onMounted(load);
               <template v-if="s.friends.length"> · {{ s.friends.join('、') }}</template>
             </small>
           </div>
-          <Button size="small" text icon="pi pi-external-link" title="打开世界页" @click="openWorld(s.worldId)" />
+          <Button size="small" text icon="pi pi-external-link" title="打开世界页" @click="openWorld(s.worldId)" aria-label="打开世界页" />
         </div>
       </div>
     </div>

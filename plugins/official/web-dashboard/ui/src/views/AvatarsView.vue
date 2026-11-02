@@ -86,7 +86,7 @@ onMounted(load);
       <h2><i class="pi pi-user-edit"></i> 我的模型</h2>
       <span class="av-count">上传与收藏 · 后端 30 分钟缓存</span>
       <InputText v-model="q" placeholder="搜索模型…" class="av-search" aria-label="搜索模型" />
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" aria-label="刷新" />
     </div>
 
     <div class="av-chips" role="group" aria-label="模型类别筛选">

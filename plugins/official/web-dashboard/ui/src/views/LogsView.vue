@@ -132,7 +132,7 @@ onUnmounted(() => {
     <div class="lv-head">
       <h2><i class="pi pi-history"></i> 服务日志</h2>
       <span class="lv-count">{{ lvNote }}</span>
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="reload" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="reload" aria-label="刷新" />
     </div>
 
     <div class="lv-src" role="group" aria-label="日志来源">

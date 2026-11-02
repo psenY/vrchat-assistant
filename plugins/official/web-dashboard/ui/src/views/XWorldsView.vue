@@ -100,7 +100,7 @@ onMounted(load);
       <h2><i class="pi pi-twitter"></i> X 博主推荐</h2>
       <span class="xw-count">X（Twitter）博主推荐的世界 · 本地知识库{{ data ? ' · 共 ' + data.total + ' 个' : '' }}</span>
       <InputText v-model="q" placeholder="搜索世界 / 作者…" class="xw-search" aria-label="搜索推荐世界" />
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" aria-label="刷新" />
     </div>
 
     <!-- 博主清单 -->

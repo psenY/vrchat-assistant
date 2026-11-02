@@ -215,7 +215,7 @@ const statusText = (f) => {
     <div class="fv-head">
       <h2><i class="pi pi-star"></i> 收藏</h2>
       <span class="fv-count">{{ loading ? '加载中…' : ((worlds ? worlds.length : 0) + (avatars ? avatars.length : 0) + (friends ? friends.length : 0)) + ' 项' }}</span>
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="reload" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="reload" aria-label="刷新" />
     </div>
 
     <Tabs v-model:value="tab" :scrollable="true">
@@ -263,7 +263,7 @@ const statusText = (f) => {
                   </div>
                   <div class="wc-actions">
                     <Button icon="pi pi-arrow-right" text size="small" class="rm-btn" title="移动分组" :aria-label="'移动分组 ' + w.worldName" @click.stop="toggleMove(w)" />
-                    <Button icon="pi pi-star-fill" severity="warn" text size="small" class="rm-btn" title="取消收藏" :loading="removing.has('world:' + w.worldId)" @click.stop="removeFav('world', w.worldId, w.worldName)" />
+                    <Button icon="pi pi-star-fill" severity="warn" text size="small" class="rm-btn" title="取消收藏" :loading="removing.has('world:' + w.worldId)" @click.stop="removeFav('world', w.worldId, w.worldName)" aria-label="取消收藏" />
                   </div>
                   <div v-if="moveMenuFor === w.worldId" class="move-menu" @click.stop>
                     <div class="mm-title">移动到收藏夹</div>
@@ -295,7 +295,7 @@ const statusText = (f) => {
                     <b class="ellipsis" :title="a.name">{{ a.name }}</b>
                     <div class="text-dim">{{ a.authorName || '' }}</div>
                   </div>
-                  <Button icon="pi pi-star-fill" severity="warn" text size="small" class="rm-btn" title="取消收藏" :loading="removing.has('avatar:' + a.avatarId)" @click.stop="removeFav('avatar', a.avatarId, a.name)" />
+                  <Button icon="pi pi-star-fill" severity="warn" text size="small" class="rm-btn" title="取消收藏" :loading="removing.has('avatar:' + a.avatarId)" @click.stop="removeFav('avatar', a.avatarId, a.name)" aria-label="取消收藏" />
                 </div>
               </div>
             </div>
@@ -320,7 +320,7 @@ const statusText = (f) => {
                     <b>{{ f.name }}</b>
                     <div class="text-dim">{{ statusText(f) }}</div>
                   </div>
-                  <Button icon="pi pi-star-fill" severity="warn" text size="small" class="rm-btn" title="取消收藏" :loading="removing.has('friend:' + f.userId)" @click.stop="removeFav('friend', f.userId, f.name)" />
+                  <Button icon="pi pi-star-fill" severity="warn" text size="small" class="rm-btn" title="取消收藏" :loading="removing.has('friend:' + f.userId)" @click.stop="removeFav('friend', f.userId, f.name)" aria-label="取消收藏" />
                 </div>
               </div>
             </div>

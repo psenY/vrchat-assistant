@@ -227,6 +227,19 @@ body {
 /* 滚动区域圆角统一 */
 .rounded { border-radius: var(--radius); }
 
+/* 键盘焦点可见性（2026-11-02）：51 个可聚焦元素（tabindex="0" 的 span/div/img）里
+   有 10 个文件此前完全没有焦点指示 —— 键盘用户看不见焦点落在哪，等于不可用。
+   这些元素分属五花八门的业务类（world-link / friend-card / mini-row / inst-member …），
+   逐个类补会漏，故用属性选择器统一兜住：只作用于**通过键盘到达**的元素，鼠标点击不出现描边。
+   已有的 per-view focus-visible 规则优先级更高（同为 0,1,0 但后定义），不受影响。 */
+[tabindex="0"]:focus-visible, [tabindex]:not([tabindex="-1"]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* 弹窗/浮层内同理（.p-dialog 等自带 outline: none，这里补回来） */
+.p-dialog [tabindex="0"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* PrimeVue 暗色微调 */
 .p-button:focus-visible, .p-drawer, .p-inputtext:focus { outline-color: var(--accent); }
 

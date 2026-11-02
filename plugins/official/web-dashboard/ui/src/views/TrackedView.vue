@@ -229,7 +229,7 @@ onMounted(load);
         <InputText v-model="q" placeholder="搜索昵称 / ID…" class="tk-search" aria-label="搜索追踪用户" />
         <Button size="small" :icon="addOpen ? 'pi pi-times' : 'pi pi-user-plus'" :label="addOpen ? '收起' : '添加追踪'" :severity="addOpen ? 'secondary' : undefined" @click="addOpen = !addOpen" />
         <Button size="small" icon="pi pi-sync" :loading="refreshing" label="立即刷新" title="手动触发全部追踪用户资料刷新（限流队列执行）" @click="refreshNow" />
-        <Button size="small" text icon="pi pi-refresh" title="刷新列表" @click="load" />
+        <Button size="small" text icon="pi pi-refresh" title="刷新列表" @click="load" aria-label="刷新列表" />
       </div>
     </div>
 
