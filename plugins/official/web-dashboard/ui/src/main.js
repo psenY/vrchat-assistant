@@ -31,6 +31,7 @@ import './style.css';
 import { startDashboard } from './store.js';
 import { imgUrl } from './api.js';
 import { readPref, apply, bindSystemWatcher } from './theme.js';
+import { clickable } from './directives/clickable.js';
 
 // iOS 软键盘修复：键盘弹出时 visualViewport 高度小于 100dvh，把实际值写到 --vvh，
 // 壳体加 has-vvk 类后改用该高度（style.css），fixed tabbar/header 不再被顶飞
@@ -155,6 +156,8 @@ app.component('Textarea', Textarea);
 app.component('Calendar', Calendar);
 
 app.directive('tooltip', Tooltip);
+// 非 <button> 可点元素的键盘可达性（Enter/Space 一致、自动补 role+tabindex）
+app.directive('clickable', clickable);
 
 startDashboard();
 

@@ -332,7 +332,7 @@ const rawJson = computed(() => {
         <TabPanel value="mutual">
           <div v-if="!profile.mutualFriends.length" class="empty" style="padding:16px">暂无共同好友</div>
           <div v-else class="mini-list">
-            <div v-for="f in profile.mutualFriends" :key="f.id" class="mini-row" role="button" tabindex="0" @click="store.userModal = { userId: f.id, displayName: f.displayName, avatarUrl: f.avatarUrl }" @keydown.enter="store.userModal = { userId: f.id, displayName: f.displayName, avatarUrl: f.avatarUrl }">
+            <div v-for="f in profile.mutualFriends" :key="f.id" class="mini-row" v-clickable="store.userModal = { userId: f.id, displayName: f.displayName, avatarUrl: f.avatarUrl }" >
               <Avatar :image="f.avatarUrl" shape="circle" size="small" :label="avatarLabel(f.avatarUrl, f.displayName)" />
               <span>{{ nameOf(f) }}</span>
             </div>
@@ -343,7 +343,7 @@ const rawJson = computed(() => {
         <TabPanel value="mutualgrp">
           <div v-if="!profile.mutualGroups || !profile.mutualGroups.length" class="empty" style="padding:16px">暂无共同群组</div>
           <div v-else class="mini-list">
-            <div v-for="g in profile.mutualGroups" :key="g.id" class="mini-row" role="button" tabindex="0" @click="openGroup(g.id)" @keydown.enter="openGroup(g.id)">
+            <div v-for="g in profile.mutualGroups" :key="g.id" class="mini-row" v-clickable="openGroup(g.id)" >
               <span>{{ g.name }}</span>
               <small v-if="g.memberCount" class="mini-dim">{{ g.memberCount }} 成员</small>
             </div>
@@ -354,7 +354,7 @@ const rawJson = computed(() => {
         <TabPanel value="groups">
           <div v-if="!profile.groups.length" class="empty" style="padding:16px">暂未加入群组</div>
           <div v-else class="mini-list">
-            <div v-for="g in profile.groups" :key="g.id" class="mini-row" role="button" tabindex="0" @click="openGroup(g.id)" @keydown.enter="openGroup(g.id)">
+            <div v-for="g in profile.groups" :key="g.id" class="mini-row" v-clickable="openGroup(g.id)" >
               <img v-if="g.iconUrl" :src="g.iconUrl" class="mini-thumb" alt="" loading="lazy" />
               <i v-else class="pi pi-users"></i>
               <span>{{ g.name }} <small class="text-dim">({{ g.memberCount }}人)</small></span>
@@ -367,7 +367,7 @@ const rawJson = computed(() => {
         <TabPanel value="worlds" v-if="isFriend">
           <div v-if="!profile.worlds.length" class="empty" style="padding:16px">暂无创建的世界</div>
           <div v-else class="world-grid">
-            <div v-for="w in profile.worlds" :key="w.id" class="world-card" role="button" tabindex="0" @click="openWorld(w.id)" @keydown.enter="openWorld(w.id)">
+            <div v-for="w in profile.worlds" :key="w.id" class="world-card" v-clickable="openWorld(w.id)" >
               <img v-if="w.imageUrl" :src="w.imageUrl" class="world-img" alt="" loading="lazy" />
               <div v-else class="world-img world-img-empty"><i class="pi pi-globe"></i></div>
               <div class="world-info">
@@ -396,7 +396,7 @@ const rawJson = computed(() => {
                 <span class="fav-group-count">{{ g.worlds ? g.worlds.length : 0 }}</span>
               </div>
               <div class="world-grid">
-                <div v-for="w in g.worlds" :key="w.worldId || w.name" class="world-card" role="button" tabindex="0" @click="openWorld(w.worldId)" @keydown.enter="openWorld(w.worldId)">
+                <div v-for="w in g.worlds" :key="w.worldId || w.name" class="world-card" v-clickable="openWorld(w.worldId)" >
                   <img v-if="w.imageUrl" :src="w.imageUrl" class="world-img" alt="" loading="lazy" />
                   <div v-else class="world-img world-img-empty"><i class="pi pi-globe"></i></div>
                   <div class="world-info">
@@ -413,7 +413,7 @@ const rawJson = computed(() => {
         <TabPanel value="avatars" v-if="isFriend">
           <div v-if="!profile.avatars.length" class="empty" style="padding:16px">暂无创建的模型（VRChat 对他人的模型列表有限制）</div>
           <div v-else class="world-grid">
-            <div v-for="a in profile.avatars" :key="a.id" class="world-card" role="button" tabindex="0" @click="openAvatarImage(a)" @keydown.enter="openAvatarImage(a)">
+            <div v-for="a in profile.avatars" :key="a.id" class="world-card" v-clickable="openAvatarImage(a)" >
               <img v-if="a.thumbnailImageUrl" :src="a.thumbnailImageUrl" class="world-img" alt="" loading="lazy" />
               <div v-else class="world-img world-img-empty"><i class="pi pi-user-edit"></i></div>
               <div class="world-info">

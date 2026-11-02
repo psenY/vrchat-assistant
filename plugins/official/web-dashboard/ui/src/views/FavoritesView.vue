@@ -250,7 +250,7 @@ const statusText = (f) => {
                 <div class="fgm-note">设为公开后收藏夹对他人可见（敏感操作）</div>
               </div>
               <div class="world-grid">
-                <div v-for="w in list" :key="w.worldId" class="world-card" role="button" tabindex="0" @click="openWorld(w.worldId)" @keydown.enter="openWorld(w.worldId)">
+                <div v-for="w in list" :key="w.worldId" class="world-card" v-clickable="openWorld(w.worldId)" >
                   <img v-if="w.imageUrl" :src="w.imageUrl" class="world-img" alt="" loading="lazy" />
                   <div v-else class="world-img world-img-empty"><i class="pi pi-globe"></i></div>
                   <div class="world-info">
@@ -288,7 +288,7 @@ const statusText = (f) => {
             <div v-for="[g, list] in visibleAvatarGroups" :key="g" class="fv-group">
               <div class="fv-group-head"><i class="pi pi-bookmark"></i>{{ favName(g) }} <span class="fv-group-count">{{ list.length }}</span></div>
               <div class="avatar-grid">
-                <div v-for="a in list" :key="a.avatarId" class="avatar-card" role="button" tabindex="0" @click="openPreview(a.imageUrl || '')" @keydown.enter="openPreview(a.imageUrl || '')">
+                <div v-for="a in list" :key="a.avatarId" class="avatar-card" v-clickable="openPreview(a.imageUrl || '')" >
                   <img v-if="a.imageUrl" :src="a.imageUrl" class="avatar-img" alt="" loading="lazy" />
                   <div v-else class="avatar-img avatar-img-empty"><i class="pi pi-user"></i></div>
                   <div class="avatar-info">
@@ -313,7 +313,7 @@ const statusText = (f) => {
             <div v-for="[g, list] in visibleFriendGroups" :key="g" class="fv-group">
               <div class="fv-group-head"><i class="pi pi-bookmark"></i>{{ favName(g) }} <span class="fv-group-count">{{ list.length }}</span></div>
               <div class="fav-friend-list">
-                <div v-for="f in list" :key="f.userId" class="fav-friend" role="button" tabindex="0" @click="openUser({ userId: f.userId, displayName: f.name, avatarUrl: f.avatarUrl || '' })" @keydown.enter="openUser({ userId: f.userId, displayName: f.name, avatarUrl: f.avatarUrl || '' })">
+                <div v-for="f in list" :key="f.userId" class="fav-friend" v-clickable="openUser({ userId: f.userId, displayName: f.name, avatarUrl: f.avatarUrl || '' })" >
                   <img v-if="f.avatarUrl" :src="f.avatarUrl" class="fav-friend-av" alt="" loading="lazy" />
                   <div v-else class="fav-friend-av fav-friend-av-empty">{{ (f.name || '?')[0] }}</div>
                   <div class="fav-friend-info">

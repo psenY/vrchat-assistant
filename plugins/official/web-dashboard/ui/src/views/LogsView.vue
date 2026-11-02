@@ -191,7 +191,7 @@ onUnmounted(() => {
 }
 .lv-q:focus { border-color: var(--accent); }
 .lv-name { text-transform: lowercase; min-width: 46px; justify-content: center; }
-.lvhint { font-size: 11px; color: var(--warn-text, #e0a63c); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+.lvhint { font-size: 11px; color: var(--warn-text, var(--warn)); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
 .lv-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
 .lv-list { display: flex; flex-direction: column; gap: 4px; }
 .lv-ico { font-size: 9px; margin-right: 4px; }

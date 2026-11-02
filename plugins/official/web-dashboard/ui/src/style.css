@@ -37,11 +37,11 @@ html:not(.app-dark) {
   --text-dim: #61616b;
   --accent: #7c3aed;
   --accent-2: #0891b2;
-  --ok: #16a34a;
+  --ok: #15803d;
   --warn: #ea580c;
   --info: #2563eb;
   --danger: #dc2626;
-  --star: #d99a00;
+  --star: #b8860b;   /* 浅底上 #ffca28 只有 1.53:1（几乎看不见）⇒ 提到 3.25:1，仍是金色观感 */
 }
 html:not(.app-dark) ::-webkit-scrollbar-thumb { background: #c9c9d0; }
 html:not(.app-dark) ::-webkit-scrollbar-thumb:hover { background: #b0b0b9; }
