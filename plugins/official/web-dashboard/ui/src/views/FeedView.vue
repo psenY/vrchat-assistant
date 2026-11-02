@@ -6,6 +6,7 @@ import { post } from '../api.js';
 import { toast } from '../toast.js';
 import { statusColor } from '../composables/useFriendGroups.js';
 import { typeOf, isNotiUpdate, TYPE_LABELS, TYPE_ICONS, TYPE_SEVERITIES } from '../constants/event-types.js';
+import { daySepLabel } from '../utils/feed-day-label.js';
 
 const datePop = ref(null);
 
@@ -269,23 +270,13 @@ const rows = computed(() => {
   return list;
 });
 
-// 按天分组（今天/昨天/MM-DD）：feedRows 只给模板用，rows 保持纯列表供计数/加载逻辑
-function daySepLabel(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const today = new Date();
-  const yest = new Date(today.getTime() - 86400000);
-  const same = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-  if (same(d, today)) return '今天';
-  if (same(d, yest)) return '昨天';
-  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+// 按天分组（今天/昨天/MM-DD）：纯函数在 utils/feed-day-label.js（可注入 nowMs ⇒ 跨午夜边界可测）
 const feedRows = computed(() => {
   const out = [];
   let lastDay = '';
+  const nowMs = Date.now();   // 一次渲染内固定「现在」，避免逐行取时跨秒/跨刻产生不一致
   for (const x of rows.value) {
-    const d = daySepLabel(x.createdAt);
+    const d = daySepLabel(x.createdAt, nowMs);
     if (d !== lastDay) { out.push({ __sep: d }); lastDay = d; }
     out.push(x);
   }
