@@ -432,7 +432,7 @@ onUnmounted(() => {
         <div v-if="!store.isMobile" class="c-time mono"><span class="ct-hm">{{ time(x.createdAt) }}</span><small>{{ date(x.createdAt) }}</small></div>
         <div v-else class="c-time mono"><span class="ct-hm">{{ time(x.createdAt) }}</span><small>{{ date(x.createdAt) }}</small></div>
         <div class="c-type"><Tag :value="TYPE_LABELS[typeOf(x)]" :severity="TYPE_SEVERITIES[typeOf(x)]" rounded><i class="pi ctype-ico" :class="TYPE_ICONS[typeOf(x)] || 'pi-circle'"></i></Tag></div>
-        <div class="c-player" v-clickable.stop="playerOpen(x)" >
+        <div class="c-player" v-clickable.stop="(e) => (playerOpen(x))" >
           <Avatar :image="playerAvatarOf(x)" shape="circle" size="small" :label="avatarLabel(playerAvatarOf(x), playerNameOf(x))" />
           <span class="pl-name" :style="{ color: trustColor(x.trustLevel) }">{{ playerNameOf(x) }}</span>
           <i v-if="isFav(x)" class="pi pi-star-fill pl-star" title="收藏好友"></i>
@@ -534,12 +534,12 @@ onUnmounted(() => {
           <!-- 群组通知：显示群组名+内容；更新类显示"通知已读：内容"，点击打开群组 -->
           <template v-else-if="typeOf(x) === 'group'">
             <template v-if="isNotiUpdate(x)">
-              <span class="noti-read-wrap" :class="{ 'noti-msg-link': x.notiGroupId }" v-clickable.stop="openGroup(x.notiGroupId)" :title="x.notiGroupId ? '点击打开群组' : ''">
+              <span class="noti-read-wrap" :class="{ 'noti-msg-link': x.notiGroupId }" v-clickable.stop="(e) => (openGroup(x.notiGroupId))" :title="x.notiGroupId ? '点击打开群组' : ''">
                 <span class="dim">通知已读：</span>
                 <span class="noti-msg-inline">{{ x.notiMessage || x.notiTitle || '群组通知' }}</span>
               </span>
             </template>
-            <span v-else class="noti-msg" :class="{ 'noti-msg-link': x.notiGroupId }" v-clickable.stop="openGroup(x.notiGroupId)" :title="x.notiGroupId ? '点击打开群组' : ''">{{ x.notiMessage || x.notiTitle }}</span>
+            <span v-else class="noti-msg" :class="{ 'noti-msg-link': x.notiGroupId }" v-clickable.stop="(e) => (openGroup(x.notiGroupId))" :title="x.notiGroupId ? '点击打开群组' : ''">{{ x.notiMessage || x.notiTitle }}</span>
           </template>
 
           <!-- 其他通知 -->
