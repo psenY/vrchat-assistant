@@ -61,11 +61,32 @@ ETag/304/identity 三种行为逐项验证未变。
 
 ---
 
+## 第二轮已修（2026-11-02）
+
+### 6. 键盘焦点可见性
+
+51 个 tabindex="0" 元素分布在 14 个文件，其中 **10 个文件完全没有 focus 样式**
+⇒ 键盘用户看不见焦点在哪。在 style.css 用 `[tabindex]:not([tabindex="-1"]):focus-visible`
+统一兜住（只对键盘到达生效，鼠标点击不描边），已有 per-view 规则优先级更高不受影响。
+实测：真实 Tab 键后 :focus-visible 命中，outline 2px solid rgb(139,92,246)；修复前 outline-style: none。
+
+### 7. 图标按钮可访问名称
+
+98 个图标按钮中 20 个只有 title，已统一提升为 aria-label（保留 title 供悬停提示）。
+现：37 有可见文字 + 61 aria-label + 0 仅 title + **0 无名称**。
+
+### 两个自查纠正
+
+- 上一版报告写「57 个缺 aria-label」是**按子串匹配**的错数；属性精确匹配后真实是 20 个仅 title。已在此更正。
+- 批量脚本曾把 aria-label 插到自闭合标签斜杠之后（`/ aria-label="…">`），已全部修正并 grep 确认 0 残留。
+  ⇒ **批量改模板必须回读产物**，不能只信脚本报的文件数。
+
+---
 ## 未修复（按性价比排序，供后续排期）
 
 | # | 问题 | 量化 | 建议 |
 |---|---|---|---|
-| 1 | 纯图标 Button 缺 `aria-label` | 57 个（92 个 icon Button 里只有 35 个有） | 批量补，屏幕阅读器可用性 |
+| 1 | ~~纯图标 Button 缺 aria-label~~ **已修（d9bff20）** | 真实是 20 个「仅 title」；按子串统计的 57 是错的 | title 已提升为 aria-label，现 98 = 37 有文字 + 61 aria + 0 无名称 |
 | 2 | `role="button"` 手写三件套重复 | 51 处（`role+tabindex+@keydown.enter` 26 处完全同形） | 抽一个 `<ClickableRow>` 或 `v-clickable` 指令 |
 | 3 | FeedView 1063 行、无虚拟滚动 | 一次渲染 50 行 × 复杂分支 | 行多时滚动会掉帧；可上 `vue-virtual-scroller`，但要先量 |
 | 4 | store.js 802 行单文件 | 状态+加载+SSE+键盘+哈希路由混在一起 | 按 feed/friends/sse 拆模块 |

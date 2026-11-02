@@ -100,6 +100,25 @@ export class Storage {
     if (!tnfCols.some(c => c.name === 'world_id')) {
       this._run(`ALTER TABLE tracked_non_friends ADD COLUMN world_id TEXT DEFAULT ''`);
     }
+    // 迁移：events 增加 content_subtype 生成列 + 复合索引（2026-11-02，幂等）
+    // 背景：dashboard.events 的 total 走 COUNT(*) + 「NOT (type IN (...) AND json_extract(...) = '')」，
+    // 该条件让 SQLite 对全表 6.2 万行逐行反序列化 JSON ⇒ 单次请求 190-230ms（生产实测）。
+    // 而这条 NOT(...) 结构无法让优化器走索引（实测 SCAN e）。生成列把子类型物化后，
+    // 拆成两条走 (type, content_subtype) 索引的 COUNT 相加 ⇒ 9ms，语义逐字节等价（48249 == 48249）。
+    // 生成列 VIRTUAL：不占存储、不改变 INSERT（显式列名插入）、brick 前提 sqlite >= 3.31。
+    // ⚠️ 必须用 table_xinfo 而不是 table_info：SQLite 的 table_info **不返回生成列**
+    // （2026-11-02 实测：加完生成列后 table_info 仍是 9 列、table_xinfo 是 10 列）⇒ 用 table_info
+    // 做「列已存在」判定永远为假 ⇒ 第二次 init 会 duplicate column 报错（被 test/tracked-fail-backoff 抓到）。
+    const evCols = this._query(`PRAGMA table_xinfo(events)`);
+    if (!evCols.some(c => c.name === 'content_subtype')) {
+      this._run(`ALTER TABLE events ADD COLUMN content_subtype TEXT GENERATED ALWAYS AS (json_extract(content_json,'$.type')) VIRTUAL`);
+    }
+    try {
+      this._run(`CREATE INDEX IF NOT EXISTS idx_events_type_subtype ON events(type, content_subtype)`);
+    } catch (e) {
+      // 老 SQLite（<3.31）不支持生成列 ⇒ 上一条 ALTER 会先失败，这里再兜一次，避免启动崩
+      log.warn(`events content_subtype 索引创建失败（判据查询将回落到全表扫描）: ${e.message}`);
+    }
     // 迁移：旧库 world_cache 缺 note 列
     const worldCols = this._query(`PRAGMA table_info(world_cache)`);
     if (!worldCols.some(c => c.name === 'note')) {
