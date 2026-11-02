@@ -428,7 +428,7 @@ onUnmounted(() => {
 
       <template v-for="x in feedRows" :key="x.__sep ? 'sep-' + x.__sep : rowId(x)">
       <div v-if="x.__sep" class="ev-daysep"><span>{{ x.__sep }}</span></div>
-      <div v-else class="ev-row" :class="{ open: expanded === rowId(x) }" v-clickable="toggleRow(x)" >
+      <div v-else class="ev-row" :class="{ open: expanded === rowId(x) }" v-clickable="(e) => (toggleRow(x))" >
         <div v-if="!store.isMobile" class="c-time mono"><span class="ct-hm">{{ time(x.createdAt) }}</span><small>{{ date(x.createdAt) }}</small></div>
         <div v-else class="c-time mono"><span class="ct-hm">{{ time(x.createdAt) }}</span><small>{{ date(x.createdAt) }}</small></div>
         <div class="c-type"><Tag :value="TYPE_LABELS[typeOf(x)]" :severity="TYPE_SEVERITIES[typeOf(x)]" rounded><i class="pi ctype-ico" :class="TYPE_ICONS[typeOf(x)] || 'pi-circle'"></i></Tag></div>
@@ -455,7 +455,7 @@ onUnmounted(() => {
                 <!-- 上一刻是仅邀请/私人房间 ⇒ 一律「私人房间」，**即便能拿到世界名**（用户 2026-10-17 定案；
                      2026-10-18 复审 ⚠️1：此前这条定案只在纯函数里，模板被 x.previousWorldId 分支绕过 ⇒ 实际渲染成世界名） -->
                 <span v-if="prevPrivate(x)" class="dim">私人房间</span>
-                <span v-else-if="x.previousWorldId" class="world-link" v-clickable="openWorld(x.previousWorldId)" >{{ x.previousWorldName }}</span>
+                <span v-else-if="x.previousWorldId" class="world-link" v-clickable="(e) => (openWorld(x.previousWorldId))" >{{ x.previousWorldName }}</span>
                 <span v-else class="dim">{{ prevLabelOf(x) }}</span>
                 <span v-if="prevInstLabel(x)" class="inst mono">{{ prevInstLabel(x) }}</span>
                 <span class="arr">→</span>
@@ -463,7 +463,7 @@ onUnmounted(() => {
             </template>
             <span class="dest-group">
               <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
-              <span v-if="x.worldName" class="world-link" v-clickable="openWorld(x.worldId)" >{{ x.worldName }}</span>
+              <span v-if="x.worldName" class="world-link" v-clickable="(e) => (openWorld(x.worldId))" >{{ x.worldName }}</span>
               <!-- 世界名不可得（VRChat 对无权查看/已下架世界返回 404）：显式标注 + 完整 worldId，房间号照旧跟在后面（2026-10-17 用户定） -->
               <span v-else-if="x.worldId && x.worldNameUnavailable" class="dim mono" :title="'VRChat 返回 404/403：该世界对当前账号不可见或已下架（可能是暂时的，服务会自动重试）—— ' + x.worldId">404世界 {{ x.worldId }}</span>
               <span v-else-if="x.location" class="dim">{{ specialLocationLabel(x.location) || locLabel(x.location) || x.location }}</span>
@@ -516,7 +516,7 @@ onUnmounted(() => {
           <template v-else-if="typeOf(x) === 'online'">
             <span class="dim">进入</span>
             <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
-            <span v-if="x.worldName" class="world-link" v-clickable="openWorld(x.worldId)" >{{ x.worldName }}</span>
+            <span v-if="x.worldName" class="world-link" v-clickable="(e) => (openWorld(x.worldId))" >{{ x.worldName }}</span>
             <span v-else-if="destPrivate(x)" class="dim">私人房间</span>
             <span v-else class="dim">VRChat</span>
           </template>
@@ -598,7 +598,7 @@ onUnmounted(() => {
           <!-- 加入群组：groupId 可点击打开群组 -->
           <template v-else-if="typeOf(x) === 'groupJoined'">
             <span class="dim">加入了</span>
-            <span v-if="x.notiGroupName" class="world-link" v-clickable="openGroup(x.groupId || x.notiGroupId)" >{{ x.notiGroupName }}</span>
+            <span v-if="x.notiGroupName" class="world-link" v-clickable="(e) => (openGroup(x.groupId || x.notiGroupId))" >{{ x.notiGroupName }}</span>
             <span v-if="x.groupId && !x.notiGroupName" class="mono" :title="x.groupId">{{ x.groupId }}</span>
             <Button v-if="x.groupId" icon="pi pi-copy" text size="small" rounded :aria-label="'复制群组 ID'" :title="x.notiGroupName ? '复制群组 ID：' + x.groupId : '复制群组 ID'" @click="copyText(x.groupId)" />
           </template>
@@ -611,7 +611,7 @@ onUnmounted(() => {
           <!-- 群组角色更新：群名（可打开） + 角色名 -->
           <template v-else-if="typeOf(x) === 'groupRoleUpdated'">
             <span class="dim">群组角色更新</span>
-            <span v-if="x.notiGroupName" class="world-link" v-clickable="openGroup(x.groupId || x.notiGroupId)" >{{ x.notiGroupName }}</span>
+            <span v-if="x.notiGroupName" class="world-link" v-clickable="(e) => (openGroup(x.groupId || x.notiGroupId))" >{{ x.notiGroupName }}</span>
             <span v-if="x.roleName" class="dim">（角色：{{ x.roleName }}）</span>
           </template>
 

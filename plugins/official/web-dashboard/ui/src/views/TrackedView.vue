@@ -276,7 +276,7 @@ onMounted(load);
         <!-- 2026-09-22 用户：把好友页的整个样式抄过来 ✓；多出来的信息与按钮**先不加** ✓（由用户决定怎么加）
              因此本卡＝好友页 .friend-card 的等价物：头像 + 名字 + 备注 + 状态；**展开入口保留**（2026-10-16 审查 🔴1 恢复），
              资料/移除入口迁到 UserDialog（卡片内不再放这两个按钮）✓ -->
-        <div class="friend-card" v-clickable="openUser(x.userId)" >
+        <div class="friend-card" v-clickable="(e) => (openUser(x.userId))" >
           <Avatar :image="x.avatarUrl || ''" :label="avatarLabel(x.avatarUrl, x.displayName)" shape="circle" />
           <div class="fc-text">
             <b :style="{ color: trustColor(x.trustLevel) }" :title="x.trustLevel ? ('信任等级：' + x.trustLevel) : ''">{{ x.displayName || x.userId }}</b><!-- 2026-09-22：非好友现在也有信任等级了（来自 tags ✓）⇒ 名字配色自动生效 ✓ + 悬停可看等级名 ✓（与好友页口径一致 ✓）-->

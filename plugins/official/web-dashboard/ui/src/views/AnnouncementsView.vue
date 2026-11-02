@@ -127,7 +127,7 @@ onMounted(load);
           <i class="pi ga-chev" :class="expanded === a.eventId ? 'pi-chevron-up' : 'pi-chevron-down'" aria-hidden="true"></i>
         </button>
         <div v-if="expanded === a.eventId" class="ga-detail">
-          <img v-if="a.imageUrl" class="ga-img" :src="a.imageUrl" alt="" loading="lazy" title="点击查看原图" v-clickable="openImage(a.imageUrl)" />
+          <img v-if="a.imageUrl" class="ga-img" :src="a.imageUrl" alt="" loading="lazy" title="点击查看原图" v-clickable="(e) => (openImage(a.imageUrl))" />
           <p class="ga-text">{{ a.text || '（无内容）' }}</p>
           <div class="ga-copyrow">
             <Button size="small" text icon="pi pi-copy" label="复制全文" @click="copyAnnouncement(a)" />

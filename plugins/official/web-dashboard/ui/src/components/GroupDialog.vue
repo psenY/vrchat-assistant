@@ -145,7 +145,7 @@ function instInfo(inst) {
           <!-- 房间页 -->
           <TabPanel v-if="hasRooms" value="rooms">
             <div class="gd-inst">
-              <div v-for="(inst, i) in g.instances" :key="i" class="gd-inst-item" v-clickable="inst.worldId && openWorld(inst.worldId)" :title="inst.worldId ? '点击打开世界' : ''">
+              <div v-for="(inst, i) in g.instances" :key="i" class="gd-inst-item" v-clickable="(e) => (inst.worldId && openWorld(inst.worldId))" :title="inst.worldId ? '点击打开世界' : ''">
                 <img v-if="inst.worldImageUrl" :src="imgUrl(inst.worldImageUrl)" class="gd-inst-img" alt="" loading="lazy" />
                 <div class="gd-inst-body">
                   <b class="gd-inst-name">{{ inst.worldName || '群组房间' }}</b>

@@ -126,7 +126,7 @@ onMounted(load);
       {{ q || onlyNoted ? '没有匹配的世界' : '暂无足迹——去逛逛，回来就有了' }}
     </div>
     <div v-else class="ws-grid">
-      <div v-for="(w, i) in shown" :key="w.worldId || i" class="ws-card" v-clickable="openWorld(w.worldId)" >
+      <div v-for="(w, i) in shown" :key="w.worldId || i" class="ws-card" v-clickable="(e) => (openWorld(w.worldId))" >
         <div class="ws-imgwrap">
           <img v-if="w.imageUrl || w.thumbnailUrl" class="ws-img" :src="w.imageUrl || w.thumbnailUrl" alt="" loading="lazy" />
           <div v-else class="ws-img ws-img-empty"><i class="pi pi-globe"></i></div>
