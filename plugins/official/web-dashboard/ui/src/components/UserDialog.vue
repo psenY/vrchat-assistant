@@ -181,27 +181,38 @@ function openAvatarImage(a) {
 }
 
 // ── 数据加载 ──
+// 竞态保护（2026-11-02）：快速切换弹窗对象时，先发出的请求可能后返回，
+// 若不校验身份就会把 A 的资料写进 B 的弹窗（A 的响应覆盖 B）。
+// 用 utils/seq-guard：序号挡同对象乱序、业务键(userId)挡对象已切换。逻辑有独立单测。
+const profileGuard = createSeqGuard();
 async function loadProfile() {
   if (!user.value.userId) return;
+  const rec = profileGuard.begin(user.value.userId);
   loading.value = true;
   error.value = '';
   profile.value = null;
   try {
-    const d = await get(`/api/dashboard/user-profile?userId=${encodeURIComponent(user.value.userId)}`, 60000);
+    const d = await get(`/api/dashboard/user-profile?userId=${encodeURIComponent(rec.key)}`, 60000);
+    if (!profileGuard.isCurrent(rec) || user.value.userId !== rec.key) return;   // 过期 ⇒ 丢弃
     if (d && d.error) { error.value = String(d.error); }
     else profile.value = d || {};
   } catch (e) {
+    if (!profileGuard.isCurrent(rec) || user.value.userId !== rec.key) return;
     error.value = '加载失败：' + (e.message || e);
   } finally {
-    loading.value = false;
+    if (profileGuard.isCurrent(rec)) loading.value = false;   // 只有最新一次能收尾
   }
 }
+const eventsGuard = createSeqGuard();
 async function loadEvents() {
   if (events.value || !user.value.userId) return;
+  const rec = eventsGuard.begin(user.value.userId);
   try {
-    const d = await get(`/api/dashboard/friend-events?userId=${encodeURIComponent(user.value.userId)}&limit=20`);
+    const d = await get(`/api/dashboard/friend-events?userId=${encodeURIComponent(rec.key)}&limit=20`);
+    if (!eventsGuard.isCurrent(rec) || user.value.userId !== rec.key) return;   // 过期 ⇒ 丢弃
     events.value = d.events || [];
   } catch (err) {
+    if (!eventsGuard.isCurrent(rec) || user.value.userId !== rec.key) return;
     // 2026-09-22 彻查：失败不写正常态（[]=「没有事件」✗）⇒ 保持旧值 + 如实报错 ✓
     toast('好友事件加载失败：' + ((err && err.message) || err), 'error');
   }
