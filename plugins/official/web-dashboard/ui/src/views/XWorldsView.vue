@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, onUnmounted } from 'vue';
 import { get, post } from '../api.js';
 import { date } from '../utils.js';
 import { openWorld } from '../store.js';
@@ -40,6 +40,7 @@ const fmtNum = (n) => (n == null ? '—' : Number(n).toLocaleString());
 // 博主管理：添加/扫描/移除（走 MCP 工具，安全模式下 remove 被拦截）
 const newCreator = ref('');
 const scanning = ref(false);
+let scanTimer = null;   // 扫描触发的延迟刷新句柄：卸载必须清，否则切页后仍 setState
 const removing = ref('');
 
 async function addCreator() {
@@ -63,12 +64,14 @@ async function scanCreators() {
     const r = await post('/api/dashboard/x-creators/scan');
     if (r && r.error) throw new Error(r.error);
     toast('已触发扫描（后台执行，可能需要几分钟，稍后刷新列表）', 'info');
-    setTimeout(async () => { await load(); scanning.value = false; }, 8000);
+    scanTimer = setTimeout(async () => { await load(); scanning.value = false; }, 8000);
   } catch (e) {
     toast('扫描触发失败：' + (e.message || e), 'error');
     scanning.value = false;
   }
 }
+
+onUnmounted(() => clearTimeout(scanTimer));
 
 async function removeCreator(c) {
   const screen = c.screen_name || '';

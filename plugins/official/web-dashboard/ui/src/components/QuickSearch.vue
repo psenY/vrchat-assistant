@@ -1,6 +1,6 @@
 <script setup>
 import { toast } from '../toast.js';
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, onUnmounted } from 'vue';
 import { store, openUser, openWorld } from '../store.js';
 import { get, imgUrl } from '../api.js';
 
@@ -45,6 +45,9 @@ watch(q, (v) => {
     searching.value = false;
   }, 300);
 });
+
+// unload: clear pending debounce so no request fires after the view is gone
+onUnmounted(() => clearTimeout(timer));
 
 function pick(u) {
   store.quickSearchOpen = false;

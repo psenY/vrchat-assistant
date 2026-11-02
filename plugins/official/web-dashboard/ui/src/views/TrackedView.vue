@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, onUnmounted } from 'vue';
 import { get, post } from '../api.js';
 import { time, date, dateTime, avatarLabel , reltime, statusLabels, trustColor, platformIcon, platformLabel } from '../utils.js';
 import { statusColor } from '../composables/useFriendGroups.js';
@@ -24,6 +24,7 @@ const addResults = ref(null);
 const addBusy = ref(false);
 let addSeq = 0;
 let addTimer = null;
+let refreshTimer = null;   // 触发刷新后的延迟重载句柄：卸载必须清
 async function searchUsers() {
   const query = addQuery.value.trim();
   const mySeq = ++addSeq;
@@ -89,6 +90,8 @@ async function addDirectId() {
 }
 
 
+onUnmounted(() => { clearTimeout(addTimer); clearTimeout(refreshTimer); });
+
 // ── 刷新 ──
 async function refreshNow() {
   if (refreshing.value) return;
@@ -97,7 +100,7 @@ async function refreshNow() {
     const r = await post('/api/dashboard/tracked/refresh');
     if (r && r.ok) {
       toast('已触发资料刷新（限流队列中，稍后自动更新列表）', 'info');
-      setTimeout(async () => { await load(); refreshing.value = false; }, 6000);
+      refreshTimer = setTimeout(async () => { await load(); refreshing.value = false; }, 6000);
     } else {
       toast((r && r.error) || '刷新失败', 'error');
       refreshing.value = false;
