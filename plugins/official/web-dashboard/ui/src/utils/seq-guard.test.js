@@ -71,3 +71,47 @@ describe('UserDialog 接线（防「逻辑写了但没接上」）', () => {
     expect(dialogSrc).toMatch(/if \(profileGuard\.isCurrent\(rec\)\) loading\.value = false/);
   });
 });
+
+
+// ── 未定义标识符护栏（2026-11-02 生产事故后补）──
+// 事故：UserDialog 调用了 createSeqGuard()，但 import 语句**从未被插入**
+// （我的插入脚本用「文件里有没有 seq-guard 字样」做幂等判断，而刚写的注释里正好含这个词
+//   ⇒ 条件恒假 ⇒ import 被跳过）。页面上线后整块报「createSeqGuard is not defined」。
+// 当时的测试只断言源码里有 createSeqGuard 字面量 ⇒ 全绿。**测的是文本，不是可执行性**。
+//
+// 这条护栏改判据：对 import 进来的每个名字，若在文件里被「调用」却**没有任何 import/声明** ⇒ 红。
+const dialogImports = [...dialogSrc.matchAll(/import\s*\{([^}]*)\}\s*from/g)]
+  .flatMap((m) => m[1].split(',').map((x) => x.trim().split(/\s+as\s+/).pop().trim()))
+  .filter(Boolean);
+const importedOrDeclared = new Set(dialogImports);
+for (const m of dialogSrc.matchAll(/(?:const|let|var|function)\s+([a-zA-Z_$][\w$]*)/g)) importedOrDeclared.add(m[1]);
+for (const m of dialogSrc.matchAll(/const\s*\{([^}]*)\}\s*=/g)) {
+  for (const part of m[1].split(',')) {
+    const t = part.trim().replace(/:.*$/, '').trim();
+    if (/^[a-zA-Z_$][\w$]*$/.test(t)) importedOrDeclared.add(t);
+  }
+}
+
+describe('UserDialog 不得调用未定义的标识符（生产事故回归）', () => {
+  it('createSeqGuard 必须真的被 import', () => {
+    expect(importedOrDeclared.has('createSeqGuard'), '缺少 import 会导致页面整块报错').toBe(true);
+  });
+
+  it('模板/脚本里出现的自定义调用都在已定义集合内', () => {
+    const CALL = /\b([a-z][a-zA-Z0-9_$]{4,})\s*\(/g;
+    const BUILTIN = new Set(['function','return','typeof','catch','switch','parseInt','parseFloat','isNaN','setTimeout','clearTimeout','encodeURIComponent','decodeURIComponent','JSON','Object','Array','Number','String','Boolean','Math','Date','Promise','require','fetch','console','undefined','if','for','while']);
+    const missing = new Set();
+    // 只扫脚本区（<style> 里的 translateY/repeat/minmax 是 CSS 函数，不是 JS 标识符）
+    const scriptOnly = (dialogSrc.match(/<script setup>([\s\S]*?)<\/script>/) || [, ''])[1];
+    for (const m of scriptOnly.matchAll(CALL)) {
+      const name = m[1];
+      if (BUILTIN.has(name)) continue;
+      if (importedOrDeclared.has(name)) continue;
+      // 方法调用（x.foo()）不算：看前一个非空白字符是否 .
+      const before = scriptOnly.slice(Math.max(0, m.index - 1), m.index);
+      if (before === '.') continue;
+      missing.add(name);
+    }
+    expect([...missing], '这些标识符被调用但既没 import 也没声明: ' + [...missing].join(', ')).toEqual([]);
+  });
+});

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
+import { createSeqGuard } from '../utils/seq-guard.js';
 import { store, closeUser, openWorld, openGroup, copyText, openPreview, toggleWatch } from '../store.js';
 import { get, post } from '../api.js';
 import { trustColor, trustName, locLabelFull, statusLabels, fmtMin, time, date, avatarLabel } from '../utils.js';
