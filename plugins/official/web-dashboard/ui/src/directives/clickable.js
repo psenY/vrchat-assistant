@@ -1,29 +1,5 @@
-/**
- * v-clickable —— 让非 <button> 元素（span/div/img）具备完整的键盘可达性。
- *
- * 背景（2026-11-02 实测）：
- *  全仓 51 处手写 `role="button" tabindex="0" @keydown.enter="fn"` 三件套。
- *  其中 48 处的 @click 与 @keydown.enter 是**同一表达式**，属于纯重复；
- *  更要紧的是**它们全部只支持 Enter，不支持空格** —— 在真实浏览器里
- *  Tab 到元素后按空格毫无反应（实测：Enter 触发，Space 不触发）。
- *  原生 <button> 的行为是「Enter 立即触发、空格在 keyup 触发」，键盘用户对此有肌肉记忆。
- *
- * 用法：
- *   <span class="world-link" v-clickable="openWorld(x.worldId)">名字</span>
- *   <div class="ev-row" v-clickable="() => toggleRow(x)">…</div>
- *
- * 行为（与原生 button 对齐）：
- *   - click      → 调用 handler
- *   - keydown Enter / Space → preventDefault（避免页面滚动）并调用 handler
- *   - 同时补 role="button" 与 tabindex="0"（已存在则不覆盖，便于渐进迁移）
- *   - handler 不是函数时静默忽略（模板里偶尔会传 undefined）
- *
- * 为什么不用 @click + @keydown.enter 继续手写：48 处 × 每个属性都容易出现
- * 「改了一处漏了另一处」（本仓已有先例：函数写了但没接线）。集中一次，
- * 后续新增可点元素照抄一个属性即可，不会再漏掉键盘路径。
- */
-
 const HANDLER = Symbol('clickableHandler');
+const CLICK_HANDLER = Symbol('clickableClickHandler');
 
 function normalize(binding) {
   const v = binding && binding.value;
@@ -35,6 +11,16 @@ function onKeydown(e) {
   if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
   // 空格默认会滚动页面；Enter 在 role=button 上默认什么都不做，都拦掉
   e.preventDefault();
+  const fn = this[HANDLER];
+  if (fn) fn(e);
+}
+
+// click 必须用「具名」函数并保存引用：
+// 早先写成 addEventListener('click', (e) => …) 且 unmounted 只移除 keydown
+// ⇒ 监听器永远留在元素上。动态流每渲染一批行就新建一批元素与闭包，
+// 元素被 Vue 移除后闭包仍被监听器持有 ⇒ 内存只增不减
+// （2026-11-02 用户实测浏览器 OOM「Out of Memory」）。这里把同一引用存到元素上，卸载时一并摘掉。
+function onClick(e) {
   const fn = this[HANDLER];
   if (fn) fn(e);
 }
@@ -51,10 +37,8 @@ export const clickable = {
     // 同一个元素可能被 v-if 复用后又重新 mounted —— WeakSet 防重复绑监听
     if (installed.has(el)) return;
     installed.add(el);
-    el.addEventListener('click', (e) => {
-      const cur = el[HANDLER];
-      if (cur) cur(e);
-    });
+    el[CLICK_HANDLER] = onClick;
+    el.addEventListener('click', onClick);
     el.addEventListener('keydown', onKeydown);
   },
   updated(el, binding) {
@@ -63,7 +47,9 @@ export const clickable = {
   },
   unmounted(el) {
     if (!el) return;
+    el.removeEventListener('click', el[CLICK_HANDLER] || onClick);
     el.removeEventListener('keydown', onKeydown);
+    delete el[CLICK_HANDLER];
     delete el[HANDLER];
     installed.delete(el);
   },
