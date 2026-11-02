@@ -30,6 +30,7 @@ import 'primeicons/primeicons.css';
 import './style.css';
 import { startDashboard } from './store.js';
 import { imgUrl } from './api.js';
+import { readPref, apply, bindSystemWatcher } from './theme.js';
 
 // iOS 软键盘修复：键盘弹出时 visualViewport 高度小于 100dvh，把实际值写到 --vvh，
 // 壳体加 has-vvk 类后改用该高度（style.css），fixed tabbar/header 不再被顶飞
@@ -111,6 +112,10 @@ const VrcPreset = definePreset(Aura, {
     },
   },
 });
+
+// 主题必须在挂载前定下来，否则深色用户会先看到一帧浅色（反之亦然）
+apply(readPref());
+bindSystemWatcher();
 
 const app = createApp(App);
 

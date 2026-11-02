@@ -24,6 +24,28 @@
   --footer-h: 30px;
 }
 
+/* ── 浅色主题：html 无 .app-dark 时生效（PrimeVue 用 darkModeSelector='.app-dark' 对齐）──
+   语义与深色一一对应（surface 序号越小越靠近背景），只换色值不换布局。 */
+html:not(.app-dark) {
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-2: #f2f2f4;
+  --surface-3: #e8e8ec;
+  --border: #dcdce1;
+  --border-soft: #ebebef;
+  --text: #16161a;
+  --text-dim: #61616b;
+  --accent: #7c3aed;
+  --accent-2: #0891b2;
+  --ok: #16a34a;
+  --warn: #ea580c;
+  --info: #2563eb;
+  --danger: #dc2626;
+  --star: #d99a00;
+}
+html:not(.app-dark) ::-webkit-scrollbar-thumb { background: #c9c9d0; }
+html:not(.app-dark) ::-webkit-scrollbar-thumb:hover { background: #b0b0b9; }
+html:not(.app-dark) * { scrollbar-color: #c9c9d0 transparent; }
 * { box-sizing: border-box; }
 html, body, #app { height: 100%; margin: 0; }
 /* 修复 iOS：软键盘弹出时 100dvh 固定布局被顶飞（fixed tabbar/header 消失或悬空）。
