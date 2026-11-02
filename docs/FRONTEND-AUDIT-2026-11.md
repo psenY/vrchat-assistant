@@ -82,6 +82,43 @@ ETag/304/identity 三种行为逐项验证未变。
   ⇒ **批量改模板必须回读产物**，不能只信脚本报的文件数。
 
 ---
+## 第三轮已修：首屏性能（2026-11-02）
+
+### 8. 动态流 total 计数 213ms → 9ms（23.7x）
+
+`dashboard.events` 每次请求都算一次 total（前端「已加载/总数」），条件是
+`NOT (type IN (...) AND COALESCE(json_extract(content_json,'$.type'),'') = '')`。
+这条让 SQLite 对**全表 62573 行逐行反序列化 JSON**：
+
+```
+COUNT(*)                           4.0 ms
+COUNT(*) WHERE type NOT IN (...)  10.8 ms   <- 只走 type 索引
++ json 条件                      213.7 ms   <- JSON 解析占 200ms
+```
+
+EXPLAIN 显示 `SCAN e`。**三种写法都无效**（实测）：表达式索引、生成列 + NOT(AND)、OR 形式改写。
+共同点：索引列与 JSON 判定同处一条语句时优化器放弃索引。
+
+改法：生成列 `content_subtype` + `(type, content_subtype)` 复合索引，total 改成
+**两条各自走索引的 COUNT 相加**（非 update 类 + update 类里子类型非空）。
+
+```
+改前 213.7 ms -> 改后 9.0 ms（23.7x，省 205ms/请求）
+整轮查询块 207.0 -> 10.1 ms（20.6x）
+等价性 48249 == 48249 OK；50 行 x 8 字段比对 0 差异
+生产实测 events 端点 230-290ms -> 68-82ms；bootstrap 570ms -> 87-111ms
+```
+
+### 两个必须记的坑（实测撞出来）
+
+- **`PRAGMA table_info` 不返回生成列** ⇒ 用它做「列是否已存在」判定永远为假 ⇒ 第二次 init
+  直接 duplicate column 崩（被既有测试抓到）。必须用 **`table_xinfo`**（同表 9 列 vs 10 列）。
+- **护栏必须调用被测代码**：初版用例自己重放两条 SQL 做对比，把实现改回旧条件时**依然全绿** ——
+  它钉的是脑子里的 SQL，不是仓库里的代码。改成调用真实 service 后变异才变红。
+  另补「索引必须存在且 EXPLAIN 含 USING INDEX」，删掉索引创建即变红（已实测）。
+
+---
+
 ## 未修复（按性价比排序，供后续排期）
 
 | # | 问题 | 量化 | 建议 |
