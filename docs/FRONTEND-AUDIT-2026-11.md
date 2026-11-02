@@ -119,6 +119,41 @@ EXPLAIN 显示 `SCAN e`。**三种写法都无效**（实测）：表达式索�
 
 ---
 
+## 第四轮已修（2026-11-02）
+
+### 9. v-clickable 指令：51 处可点元素补空格键 + 消除重复
+
+**问题一**：51 个手写 `role="button" tabindex="0" @keydown.enter` 元素，**空格键全部无效**。
+真实浏览器 CDP 实测：Enter 触发（+100）、Space 完全不触发（+0）。原生 `<button>` 是
+「Enter 立即触发、空格 keyup 触发」，键盘用户有肌肉记忆 ⇒ 这是真实可用性缺陷。
+
+**问题二**：48 处的 `@click` 与 `@keydown.enter` 是**同一表达式**（逐条比对 identical 48 / different 0），
+同一行为写两遍，正是「改一处漏一处」的土壤。
+
+改法：新增 `src/directives/clickable.js` 全局指令 —— Enter 与 Space 都触发且 preventDefault；
+自动补 role/tabindex（不覆盖已有的）；WeakSet 防重复绑；unmounted 解绑。51 处全部迁移，
+**手写 role="button" 残留 0 处**。
+
+验证：新增 `clickable.test.js` 9 条（happy-dom 驱动真实指令模块）。
+变异自证：把键判定改成只认 Enter ⇒「Space 也触发」精确变红（1 failed / 8 passed），恢复即绿。
+
+另修测试与生产不一致：`views-mount.test.js` 不走 main.js，之前对 v-clickable 报
+`Failed to resolve directive` 且**不绑定任何行为** ⇒ 已注册，告警归零。
+
+### 10. 浅色主题对比度（白底上 4 处不达标）
+
+| 用途 | 改前（浅色） | 改后 | 深色 |
+|---|---|---|---|
+| 星标 ac-fav / ws-fav / access-plus | #ffca28 = **1.53** | var(--star) #b8860b = **3.25** | 5.93 |
+| 选中勾 ac-select | #7bed9f = **1.45** | var(--ok) #15803d = **5.02** | 3.84 |
+| 删除 pr-del | #ff6b6b = **2.78** | var(--danger) #dc2626 = **4.83** | 3.99 |
+| 提示 lvhint | #e0a63c = **2.17** | var(--warn) #ea580c = **3.56** | 5.42 |
+
+根因值得记：`--star` 变量本来就存在（浅色 #d99a00），但三处星标**直接写死 #ffca28 绕过了变量** ——
+所以上一轮加浅色主题时它们根本没跟着变。去掉硬编码后自动跟随，再把变量本身提到 3.25:1。
+
+---
+
 ## 未修复（按性价比排序，供后续排期）
 
 | # | 问题 | 量化 | 建议 |
