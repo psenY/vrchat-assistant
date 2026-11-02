@@ -187,6 +187,45 @@ EXPLAIN 显示 `SCAN e`。**三种写法都无效**（实测）：表达式索�
 
 ---
 
+## 第六轮已修（2026-11-02）
+
+### 13. 关闭弹窗后焦点归还（键盘用户每开一次详情就丢一次位置）
+
+键盘用户从列表打开详情弹窗、按 Esc 关闭后，**焦点掉到 `<body>`** —— 只能从头 Tab 一遍才能回到那一行。
+
+`store.js` 加一对工具：`rememberFocusForModal()` / `restoreFocusAfterModal()`，接到 5 个 `open*`、
+5 个 `close*`、Escape 的 5 个分支。还原前检查 `el.isConnected`，来源被移除时静默跳过。
+
+4 条用例（真实 store.js）；变异（去掉 closeUser 的 restore）精确变红。
+
+**过程中的两件事**：
+- `frontend-catch-guard` 抓到我的第一版：`catch { __focusBeforeModal = null; }` 属「把失败写成正常态」。
+  规则是对的（读不到 activeElement＝没有来源，保持旧值语义更准），**改代码不改护栏**。
+- 注释里写 `close*/Escape` 时 `*/` 提前闭合块注释 ⇒ vite 报 invalid syntax。中文注释里含通配符要留神。
+
+### 14. 3 个输入框补可访问名称（placeholder 不是标签）
+
+| 位置 | 原状 |
+|---|---|
+| LogsView 关键词筛选 | 只有 placeholder |
+| UserDialog 备注输入 | 只有 placeholder |
+| RightBar 状态描述 | 只有 placeholder |
+
+placeholder 一旦输入就消失、屏幕阅读器支持不一致、也不参与校验提示 ⇒ 不算标签。补 `aria-label`，
+placeholder 保留作视觉提示。（另 4 个 radio/checkbox 在 `<label>` 内已有名称、1 个 file input 带 aria-hidden，不是缺口。）
+
+**脚本自查**：扫描脚本一度报 4 个缺口，多出的 SearchView 其实已有 `aria-label="搜索"` ——
+正则 `[^>]*` 被 `:placeholder` 里箭头函数 `t => t.v` 的 `>` 提前截断。
+⇒ 写源码扫描脚本时，属性值含 `>`（箭头函数/比较运算）会让「按 `>` 找标签结尾」失准，必须先用人确认过的样本验证。
+
+### 15. Dialog 抽取「考察后不做」（附数字）
+
+五个 Dialog 共 1511 行，确实共享 `modal`/`dismissable-mask`/`closeOnEscape`，
+但**重复总量只有 305 个字符**，宽度/header/可见性逻辑各不相同。抽 `<BaseDialog>` 只能省 305 字符，
+却给 5 个组件都加一层间接 —— 不划算。让这些文件膨胀的是各自业务模板，不是 Dialog 壳。
+
+---
+
 ## 未修复（按性价比排序，供后续排期）
 
 | # | 问题 | 量化 | 建议 |
