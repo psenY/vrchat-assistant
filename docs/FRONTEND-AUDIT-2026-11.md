@@ -255,6 +255,32 @@ FavoritesView 7 / PrintsView 6 / TrackedView 5 …）。多数字段级刷新影
 
 ---
 
+## 第八轮已修（2026-11-02）
+
+### 17. store.loadError 未在 reactive 初始对象声明
+
+`reactive({...})` 的 54 个字段里**没有 `loadError`**，但它被三处直接赋值。
+Vue 3 的 reactive 基于 Proxy，**给未声明的属性赋值不会触发依赖更新**
+（等价 Vue 2 的 `$set` 问题）⇒ 动态页「加载失败」横幅可能不刷新。
+
+发现方式：源码级差集 —— 从 `reactive({...})` 抽声明字段，从全文抽 `store.x = ...` 的写入字段，
+54 vs 41，差集恰好 1 个。这类「既读又写但声明漏了」靠人眼看 54 个字段很难发现。
+
+新增 `store-declared-fields.test.js`：**通用防复发护栏**（不只针对 loadError）——
+任何「被赋值但未声明」的字段都会让它变红。变异（删声明）⇒ 2 条精确变红。
+
+### 扫描器自身的两处假阳性（记下来避免重复踩）
+
+| 假阳性 | 真因 |
+|---|---|
+| `toggleGroup / isCollapsed / avatarOf…` 判为未定义 | 来自 `const { a, b } = useFriendGroups()` **解构**，扫描器要识别解构 |
+| `store.js` 被当成 `store.` 成员访问 | 文件名形态要排除 |
+
+修正后终值：**模板引用未定义函数 = 0，v-for 缺 key = 0**。
+这两类历史缺陷（本仓曾栽过 openDetail / startSse / getToken）当前确实不存在。
+
+---
+
 ## 未修复（按性价比排序，供后续排期）
 
 | # | 问题 | 量化 | 建议 |
