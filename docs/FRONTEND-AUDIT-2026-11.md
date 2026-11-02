@@ -283,18 +283,36 @@ Vue 3 的 reactive 基于 Proxy，**给未声明的属性赋值不会触发依�
 
 ## 未修复（按性价比排序，供后续排期）
 
-| # | 问题 | 量化 | 建议 |
+审查共 8 轮，下表是**当前真实状态**（前几轮的行已按实际进展更新，不留过时信息）。
+
+| # | 问题 | 量化 | 状态 |
 |---|---|---|---|
-| 1 | ~~纯图标 Button 缺 aria-label~~ **已修（d9bff20）** | 真实是 20 个「仅 title」；按子串统计的 57 是错的 | title 已提升为 aria-label，现 98 = 37 有文字 + 61 aria + 0 无名称 |
-| 2 | `role="button"` 手写三件套重复 | 51 处（`role+tabindex+@keydown.enter` 26 处完全同形） | 抽一个 `<ClickableRow>` 或 `v-clickable` 指令 |
-| 3 | FeedView 1063 行、无虚拟滚动 | 一次渲染 50 行 × 复杂分支 | 行多时滚动会掉帧；可上 `vue-virtual-scroller`，但要先量 |
-| 4 | store.js 802 行单文件 | 状态+加载+SSE+键盘+哈希路由混在一起 | 按 feed/friends/sse 拆模块 |
-| 5 | UserDialog 516 / WorldDialog 480 结构相似 | 都是「标题+标签页+事实表」 | 抽公共 Dialog 骨架 |
-| 6 | 硬编码颜色残留 | `#fff`×11、`#ffca28`×4、`#e5484d`×3 等 32 处 | 迁到 CSS 变量（浅色主题下部分会不协调） |
+| 1 | 异步竞态：await 后直接写状态、无身份校验 | 全仓 **69 处**（UserDialog 的两处已修） | 待办。多数字段级刷新影响有限，按需处理 |
+| 2 | FeedView 无虚拟滚动 | 单行最多 62 个条件分支；桌面 400 行硬上限（移动 200） | 待办，**需单独立项**：先量滚动帧率再决定引不引入 |
+| 3 | 硬编码颜色残留 | **31 处**，绝大多数是彩色底（accent/danger）上的 #fff，实测对比度可读 | 低优先。浅色主题下 4 处不达标的已修 |
+| 4 | role=button 手写重复 | 原 51 处 | **已修**（v-clickable 指令，残留 0） |
+| 5 | store.js 802 行 | 缓存层 60 行被 8 条测试钉着 | **不做**：无性能/正确性收益，只换文件结构 |
+| 6 | 五个 Dialog 结构相似 | 重复属性总量仅 **305 字符** | **不做**：省 305 字符却给 5 个组件各加一层间接 |
+| 7 | 纯图标按钮缺可访问名称 | 原报 57 → 真实 20（仅 title） | **已修**：现 98 = 37 有文字 + 61 aria + 0 无名称 |
+| 8 | daySepLabel / 搜索框过滤 | 1.9x（0.25ms）、2.7x（0.1ms） | **不做**：倍数好看、绝对值可忽略 |
+
+### 判定标准（后续遇到同类问题直接套）
+
+- 倍数 × 绝对值：绝对收益 < 1ms 或重复量 < 500 字符 ⇒ **不做**，只在报告留一行「考察过 + 数字」
+- 纯结构重排（拆文件、抽基类）若既无性能收益也无正确性收益 ⇒ **不做**
+- 需要新增依赖（如虚拟滚动库）⇒ 必须先量出当前痛点的真实数字，再单独立项
 
 ## 验证方式
 
-- 构建：`npm run build`（单文件产物，逐次记录字节数）
-- 门禁：`npm test` 542/542 · `test-registry` 128 PASS · `check-doc-drift` has_drift=false · UI vitest 99/99
-- 渲染：headless Chromium + CDP，实测 `getComputedStyle` 与 `document.fonts`，不靠读源码推断
+- 构建：npm run build（单文件产物，逐次记录字节数）
+- 门禁：npm test **540/540** · test-registry 128 PASS · check-doc-drift has_drift=false · UI vitest **127/127**
+- 渲染：headless Chromium + CDP，实测 getComputedStyle / document.fonts / 真实按键，不靠读源码推断
 - 视觉：modlens（DeepSeek 官方视觉模型）
+- 性能：在生产库副本（6.2 万条 events）上跑真实查询，报**改前/改后平均值**
+- 每条修复都做**变异自证**：故意破坏实现，确认对应用例变红
+
+## 方法论沉淀
+
+这 8 轮的完整方法已固化为 skill：vue-frontend-audit-with-evidence
+（量化基线 · 真 bug 扫描清单 · 源码扫描器三坑 · 可访问性判据 · 性能手法 · 「什么该不做」的判定标准）。
+下次同类审查可直接加载，不必从头摸索。
