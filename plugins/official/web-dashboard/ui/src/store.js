@@ -50,6 +50,9 @@ export const store = reactive({
   feedTotal: 0,  // 数据库事件总数（右上角"已加载/总数"）
   eventsRange: { min: null, max: null },  // 动态数据时间范围（日历筛选可选范围）
   feedLoading: false,
+  // 加载失败横幅文案（空串=无错误）。**必须在此声明**：Vue 3 的 reactive 基于 Proxy，
+  // 给未声明的属性赋值不会触发依赖更新 ⇒ 横幅可能不刷新（2026-11-02 由 store-declared-fields 用例发现）。
+  loadError: '',
   feedLoadingMore: false,
 
   friends: [],
