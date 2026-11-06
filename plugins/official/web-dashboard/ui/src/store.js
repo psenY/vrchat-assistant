@@ -50,9 +50,12 @@ export const store = reactive({
   feedTotal: 0,  // 数据库事件总数（右上角"已加载/总数"）
   eventsRange: { min: null, max: null },  // 动态数据时间范围（日历筛选可选范围）
   feedLoading: false,
-  // 加载失败横幅文案（空串=无错误）。**必须在此声明**：Vue 3 的 reactive 基于 Proxy，
-  // 给未声明的属性赋值不会触发依赖更新 ⇒ 横幅可能不刷新（2026-11-02 由 store-declared-fields 用例发现）。
+  // 加载失败横幅文案（空串=无错误）。Vue 3 下未声明属性赋值**也会**触发更新（实测 3.5.41），
+  // 声明在此属可维护性（字段全量集中、避免拼写错误静默建新字段），不是修 bug。
   loadError: '',
+  // 日期分组标签的「现在」。Date.now() 不是响应式依赖 ⇒ 必须由本字段驱动重算，
+  // 否则 23:59 打开页面后过零点仍显示「今天」（复审 💡2 指出的用户可见缺陷）。
+  dayClock: Date.now(),
   feedLoadingMore: false,
 
   friends: [],
@@ -125,18 +128,25 @@ function closeMobileDrawers() {
 // 键盘用户从列表打开详情弹窗、按 Esc 关闭后，若不归还焦点，焦点会掉到 <body> ⇒
 // 只能从头 Tab 一遍才能回到刚才那一行。记录「打开前的 activeElement」，关闭时还原。
 // 只记元素引用、不持有 DOM，元素被移除时 focusOrRestore 会静默跳过（不影响关闭流程）。
-let __focusBeforeModal = null;
-export function rememberFocusForModal() {
-  // catch 里不写 null：frontend-catch-guard 的规则是「失败不得被写成正常值」，
-  // 而「读不到 activeElement」本身就是拿不到来源 ⇒ 保持旧值（= 无可归还元素），
-  // 让 restore 自然早退，语义比强行清空更准确。
-  try { __focusBeforeModal = document.activeElement || null; } catch { /* 保持旧值：无来源可还原 */ }
+// 焦点来源用**栈**而不是单槽（复审 EMeowAGENT ⚠️4）：
+// 单槽在嵌套弹窗下会被覆盖 —— 开 UserDialog 记列表行 → 弹窗内开 WorldDialog 覆盖成弹窗内元素
+// → 关 WorldDialog 还原并清空 → 关 UserDialog 时槽已空 ⇒ 焦点掉到 body，正是本功能想修的现象。
+const __focusStack = [];
+export function activeFocusStackDepth() { return __focusStack.length; }
+function rememberFocusForModal() {
+  // catch 里不压栈：frontend-catch-guard 的规则是「失败不得被写成正常值」，
+  // 而「读不到 activeElement」本身就是拿不到来源 ⇒ 不压栈，让 restore 自然早退。
+  try { __focusStack.push(document.activeElement || null); } catch { /* 无来源可还原 */ }
 }
 export function restoreFocusAfterModal() {
-  const el = __focusBeforeModal;
-  __focusBeforeModal = null;
-  if (!el || typeof el.focus !== 'function') return;
-  try { if (el.isConnected) el.focus({ preventScroll: true }); } catch { /* 元素已移除/不可聚焦：忽略 */ }
+  // 栈式还原：每次关闭弹出最近一次打开时记下的来源，嵌套弹窗逐层归还。
+  while (__focusStack.length) {
+    const el = __focusStack.pop();
+    // 跳过已从 DOM 移除的来源（弹窗内部元素可能随弹窗一起销毁），继续往下一层还
+    if (el && typeof el.focus === 'function' && el.isConnected) {
+      try { el.focus({ preventScroll: true }); return; } catch { /* 不可聚焦：继续下一层 */ }
+    }
+  }
 }
 
 export function openUser(u) {
@@ -188,7 +198,12 @@ export function openInstance(loc) {
 }
 export const closeInstance = () => { store.instanceModal = null; restoreFocusAfterModal(); };
 
-export const openPreview = (url) => { if (url) { closeMobileDrawers(); store.previewUrl = url; } };
+export const openPreview = (url) => {
+  if (!url) return;
+  closeMobileDrawers();
+  rememberFocusForModal();   // 复审 💡3：预览弹窗此前漏接，关掉后焦点同样会掉到 body
+  store.previewUrl = url;
+};
 
 export function copyText(t) {
   if (!t) return;
@@ -591,6 +606,23 @@ function mergeFeedEvents(latest) {
 }
 
 let feedRefreshTimer = null;
+// 日期分组时钟：只在本地下一个零点前 1 秒跳一次，然后重排下一次。
+// 为什么不用 setInterval(60s)：跨午夜只需要「过零点时变一次」，高频 tick 会让
+// computed(feedRows) 每分钟重算整表（50 行 × 分支），纯属浪费。
+// 为什么需要它：Date.now() 不是响应式依赖 ⇒ 不定时推 store.dayClock，
+// computed 不会重算，23:59 打开后过零点仍显示「今天」（复审 💡2）。
+let dayClockTimer = null;
+export function scheduleDayClock() {
+  clearTimeout(dayClockTimer);
+  const now = new Date();
+  const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1, 0);
+  const delay = Math.max(1000, nextMidnight.getTime() - now.getTime());
+  dayClockTimer = setTimeout(() => {
+    store.dayClock = Date.now();
+    scheduleDayClock();
+  }, delay);
+}
+
 function refreshFeed() {
   clearTimeout(feedRefreshTimer);
   feedRefreshTimer = setTimeout(async () => {
@@ -825,5 +857,6 @@ export function startDashboard() {
     step('loadAnnNewFlag', () => loadAnnNewFlag());
     step('startSse', () => startSse());   // 与数据加载同处守卫（原 SSE 没进守卫 ⇒ 一连上就触发 load() ⇒ 登录页 overview 401）
     step('poll', () => setInterval(() => load(true), 120000));   // 全量校准：120s 一次（未登录不轮询）
+    step('dayClock', () => scheduleDayClock());   // 跨午夜重算日期分组标签（复审 💡2）
   }
 }

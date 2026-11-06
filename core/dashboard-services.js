@@ -347,7 +347,7 @@ export function registerDashboardServices(loader, ctx) {
     if (utCond) conds.push(utCond);
     const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
     const rows = ctx.storage.query(`SELECT e.id, e.type, e.user_id, e.display_name, e.content_json, e.world_id,
-      e.world_name AS e_world_name_raw, e.created_at, e.source,
+      e.world_name, e.created_at, e.source,
       f.display_name AS friendDisplayName,
       f.avatar_image_url AS avatarUrl, f.user_icon AS userIcon, f.trust_level AS trustLevel,
       COALESCE(NULLIF(wc.name,''), e.world_name, '') AS world_name,
@@ -799,17 +799,16 @@ export function registerDashboardServices(loader, ctx) {
     let total = 0;
     try {
       // 2026-11-02 性能：这条计数原先把「NOT (type IN (...) AND json_extract(...) = '')」放在
-      // WHERE 里 ⇒ SQLite 对全表逐行反序列化 JSON（生产 6.2 万行实测 190-230ms），且该结构
-      // 让优化器无法走索引（EXPLAIN 显示 SCAN e）。改成**两条走 (type, content_subtype) 索引的
-      // COUNT 相加**：非 update 类 + update 类里子类型非空，语义与原 NOT(A AND B) 逐字节等价
-      // （生产库实测 48249 == 48249），耗时 208ms → 9ms。
+      // WHERE 里 ⇒ SQLite 对全表逐行反序列化 JSON（6.2 万行库实测 190-230ms），且该结构
+      // 让优化器无法走索引（EXPLAIN 显示 SCAN e）。改成**两条走 (type, content_subtype) 索引的**
+      // COUNT 相加：非 update 类 + update 类里子类型非空，语义与原 NOT(A AND B) 逐值等价
+      // （实测 48249 == 48249），耗时 208ms → 9ms。
       // 依赖 storage 的迁移：events.content_subtype 生成列 + idx_events_type_subtype。
       const tw = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
       const hasJsonSubtypeCond = conds.some((c) => c.includes('json_extract'));
       let totalRows;
       if (hasJsonSubtypeCond && !utCond) {
-        // 基础条件里的 JSON 判定改写为索引友好形式（仅当没有额外的类型筛选时才能拆分，
-        // 因为 utCond 本身就是 json_extract 条件，拆分后无法分配到其中一条子查询上）
+        // 只有「没有额外类型筛选」时才能拆：utCond 本身就是 json_extract 条件，拆开后无法分配到子查询
         const rest = conds.filter((c) => !c.includes('json_extract'));
         const restWhere = rest.length ? ' AND ' + rest.join(' AND ') : '';
         const nonUpdate = ctx.storage.query(`SELECT COUNT(*) AS c FROM events e WHERE e.type NOT IN ('friend-update','user-update')${restWhere}`, params);

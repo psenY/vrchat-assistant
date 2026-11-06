@@ -1,7 +1,7 @@
 <script setup>
-import { computed, ref, onMounted, onUnmounted, onErrorCaptured } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted, onErrorCaptured } from 'vue';
 import { useToast } from 'primevue/usetoast';
-import { store, setView, load, startDashboard, enableNotifications, disableNotifications } from './store.js';
+import { store, setView, load, startDashboard, enableNotifications, disableNotifications, restoreFocusAfterModal } from './store.js';
 
 // 2026-09-22 用户报障「请求正常但右边整块黑的」：全项目此前**没有任何渲染错误兜底** ✗ ⇒ 子组件报错会让那一块静默变黑 ✓。
 // 捕获后代组件的渲染/生命周期错误 → 写进全局失败横幅（store.loadError ✓）+ 控制台留痕，让症状可见而非黑屏 ✓。
@@ -130,6 +130,9 @@ const authChecking = ref(true);
 const AUTH_HARD_TIMEOUT_MS = 25000;
 onMounted(async () => {
   let authSettled = false;
+  // 先声明后赋值：finishChecking 在 setTimeout 回调与 finally 里都会引用它（复审 Lian-Hu 💡2 ——
+  // 当前调用时机都安全，但若有人把 finishChecking() 提前调用一次就是 ReferenceError）。
+  let hardTimeout = null;
   const finishChecking = () => {
     if (authSettled) return true;
     authSettled = true;
@@ -137,7 +140,7 @@ onMounted(async () => {
     authChecking.value = false;
     return false;
   };
-  const hardTimeout = setTimeout(() => {
+  hardTimeout = setTimeout(() => {
     // 硬超时只负责「别把用户永久卡在检查态」，**不武断判定鉴权失败**：
     // 结束检查态、先把登录门亮出来（用户能操作），但请求本身仍可能随后成功 ——
     // 那次成功由下面的 finally 正常收口（authSettled 已在 finishChecking 里置位，不会重复）。
@@ -188,6 +191,12 @@ onMounted(async () => {
 });
 function onAuth401() { loginView.value = true; }
 onMounted(() => window.addEventListener('vrc-auth-401', onAuth401));
+
+// 图片预览弹窗走 v-model:visible（PrimeVue 直接置 store.previewUrl = null），没有 close 函数，
+// 因此用 watch 在它关闭时归还焦点（复审 💡3：此前 6 个弹窗只接了 5 个 open*，预览漏了）。
+watch(() => store.previewUrl, (now, before) => {
+  if (before && !now) restoreFocusAfterModal();
+});
 onUnmounted(() => window.removeEventListener('vrc-auth-401', onAuth401));
 function doLogout() { clearToken(); location.reload(); }
 onUnmounted(() => document.removeEventListener('scroll', onAnyScroll, true));

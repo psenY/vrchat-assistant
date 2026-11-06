@@ -146,4 +146,298 @@ describe('v-clickable', () => {
     expect(counts.add - counts.remove).toBe(0);
   });
 
+
+
+  // ── 复审 🔴1（2026-11-02，nixi-agent）：修饰符必须真的生效 ──
+  // 事故：v-clickable.stop 迁移后只读 binding.value、从不读 binding.modifiers
+  // ⇒ 子元素点击冒泡到父行 ⇒「点玩家名会同时打开用户卡 + 展开父行」。
+  it('.stop 必须阻止冒泡（子元素点击不触发父元素）', () => {
+    const parent = document.createElement('div');
+    const child = document.createElement('span');
+    parent.appendChild(child);
+    document.body.appendChild(parent);
+
+    const calls = [];
+    clickable.mounted(parent, { value: () => calls.push('parent'), modifiers: {} });
+    clickable.mounted(child, { value: () => calls.push('child'), modifiers: { stop: true } });
+
+    child.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(calls, '.stop 应阻止冒泡到父元素').toEqual(['child']);
+
+    clickable.unmounted(child);
+    clickable.unmounted(parent);
+    document.body.removeChild(parent);
+  });
+
+  // ⚠️ 用例名原为「.stop 对键盘 Enter 也必须阻止冒泡」，**语义已不成立**
+  // （复审 EMeowAGENT 第 4 轮指出）：keydown 上有意**不再应用** .stop（否则吞掉
+  // document 上的全局快捷键）。这条现在能通过是因为父容器被 ownsEvent() 早退
+  // ——子元素自己声明了可点，事件归它——而不是 .stop 生效。
+  // 改成如实的名字，免得后来者以为 keydown 的 .stop 还在。
+  it('父容器不重复处理子元素已声明的键盘事件（由 ownsEvent 保证，非 .stop）', () => {
+    const parent = document.createElement('div');
+    const child = document.createElement('span');
+    parent.appendChild(child);
+    document.body.appendChild(parent);
+
+    const calls = [];
+    clickable.mounted(parent, { value: () => calls.push('parent'), modifiers: {} });
+    clickable.mounted(child, { value: () => calls.push('child'), modifiers: { stop: true } });
+
+    child.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(calls, '事件归子元素，父容器不重复处理').toEqual(['child']);
+
+    clickable.unmounted(child);
+    clickable.unmounted(parent);
+    document.body.removeChild(parent);
+  });
+
+  // ⚠️ 语义已于 2026-11-02 变更（复审 EMeowAGENT 🔴1/🔴2 后）：
+  // 指令现在只处理「落在自身」的事件（e.target !== el 直接 return）。
+  // 于是「父行 + 子可点元素各自 v-clickable」这种嵌套结构默认就互不干扰，
+  // .stop 不再是必需品（保留它作为显式意图仍然生效）。
+  // 这条用例从「冒泡应照常」改为「嵌套时各管各的」，否则会与新的正确行为冲突。
+  it('嵌套时各管各的：点子元素只触发子元素（默认就不冒泡污染父行）', () => {
+    const parent = document.createElement('div');
+    const child = document.createElement('span');
+    parent.appendChild(child);
+    document.body.appendChild(parent);
+
+    const calls = [];
+    clickable.mounted(parent, { value: () => calls.push('parent'), modifiers: {} });
+    clickable.mounted(child, { value: () => calls.push('child'), modifiers: {} });
+
+    child.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(calls, '子元素命中，父元素不该被冒泡触发').toEqual(['child']);
+
+    parent.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(calls, '点在父元素本身仍要生效').toEqual(['child', 'parent']);
+
+    clickable.unmounted(child);
+    clickable.unmounted(parent);
+    document.body.removeChild(parent);
+  });
+
+
+
+  // ── 复审 🔴1（2026-11-02，EMeowAGENT）：容器内原生 <button> 的键盘/点击不能被父行吞掉 ──
+  // 事故：onKeydown 无条件 preventDefault ⇒ 容器内原生 <button> 的 Enter 激活被取消；
+  // 且父行 handler 被冒泡顺带触发（实测命中 1 次）。修法：e.target !== el 直接 return。
+  it('容器内原生 button 的 click 不应触发父行 handler', () => {
+    const row = document.createElement('div');
+    const btn = document.createElement('button');
+    row.appendChild(btn);
+    document.body.appendChild(row);
+
+    let rowHits = 0;
+    let btnHits = 0;
+    clickable.mounted(row, { value: () => { rowHits += 1; }, modifiers: {} });
+    btn.addEventListener('click', () => { btnHits += 1; });
+
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(btnHits, '按钮自身应响应').toBe(1);
+    expect(rowHits, '父行不该被冒泡触发').toBe(0);
+
+    // 点在行本身仍要生效
+    row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(rowHits).toBe(1);
+
+    clickable.unmounted(row);
+    document.body.removeChild(row);
+  });
+
+  it('容器内原生 button 的 Enter 不应被父行 preventDefault（否则原生激活被取消）', () => {
+    const row = document.createElement('div');
+    const btn = document.createElement('button');
+    row.appendChild(btn);
+    document.body.appendChild(row);
+
+    let rowHits = 0;
+    clickable.mounted(row, { value: () => { rowHits += 1; }, modifiers: {} });
+
+    const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    btn.dispatchEvent(ev);
+    expect(ev.defaultPrevented, '按钮上的 Enter 不能被父行取消默认行为').toBe(false);
+    expect(rowHits, '父行不该被冒泡触发').toBe(0);
+
+    // 在行本身按 Enter 仍要 preventDefault 且触发
+    const ev2 = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    row.dispatchEvent(ev2);
+    expect(ev2.defaultPrevented).toBe(true);
+    expect(rowHits).toBe(1);
+
+    clickable.unmounted(row);
+    document.body.removeChild(row);
+  });
+
+
+
+  // ── 复审 💡1（2026-11-02，Lian-Hu-Agent）：长按不应连续触发 ──
+  // 事故：keydown 无 e.repeat 守卫 ⇒ 长按空格命中 5 次（原生 <button> 为 1 次），
+  // .ev-row 这类 toggle 元素会来回抖动。
+  it('长按（repeat=true）只应触发一次', () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    let hits = 0;
+    clickable.mounted(el, { value: () => { hits += 1; }, modifiers: {} });
+
+    for (let i = 0; i < 5; i += 1) {
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true, repeat: i > 0 }));
+    }
+    expect(hits, '长按应只触发一次（对齐原生 button）').toBe(1);
+
+    clickable.unmounted(el);
+    document.body.removeChild(el);
+  });
+
+
+
+  // ── 复审 💡3（Lian-Hu-Agent）：初值不是函数时，updated 必须补装监听 ──
+  it('mounted 时 value 非函数、updated 才给函数：应能补装并响应', () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    let hits = 0;
+
+    clickable.mounted(el, { value: undefined, modifiers: {} });
+    expect(hits, '初值非函数时不应崩').toBe(0);
+
+    clickable.updated(el, { value: () => { hits += 1; }, modifiers: {} });
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(hits, 'updated 补装后应可点击（否则元素永久不可点且无报错）').toBe(1);
+
+    clickable.unmounted(el);
+    document.body.removeChild(el);
+  });
+
+
+
+  // ── 复审 🔴1 第二轮（2026-11-02，EMeowAGENT）：e.target !== el 守卫过严 ──
+  // 事故：一律早退让「卡片内图片/文字」点击全部失效（比原 bug 更伤日常——
+  // 卡片可点区域缩到只剩背景）。正确判据是「事件是否归链上某一级自己处理」。
+  describe('事件归属判定（所有权链）', () => {
+    const mk = (tag) => document.createElement(tag);
+    const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    it('容器内普通子元素（img/span/div）应触发父容器', () => {
+      const parent = mk('div');
+      const inner = mk('img');
+      const label = mk('span');
+      parent.appendChild(inner);
+      parent.appendChild(label);
+      document.body.appendChild(parent);
+      let hits = 0;
+      clickable.mounted(parent, { value: () => { hits += 1; }, modifiers: {} });
+
+      click(inner);
+      expect(hits, '卡片缩略图必须可点').toBe(1);
+      click(label);
+      expect(hits, '卡片内文字必须可点').toBe(2);
+
+      clickable.unmounted(parent);
+      document.body.removeChild(parent);
+    });
+
+    it('容器内原生 button 不触发父容器（按钮自己处理）', () => {
+      const parent = mk('div');
+      const btn = mk('button');
+      parent.appendChild(btn);
+      document.body.appendChild(parent);
+      let parentHits = 0;
+      let btnHits = 0;
+      clickable.mounted(parent, { value: () => { parentHits += 1; }, modifiers: {} });
+      btn.addEventListener('click', () => { btnHits += 1; });
+
+      click(btn);
+      expect(btnHits).toBe(1);
+      expect(parentHits).toBe(0);
+
+      clickable.unmounted(parent);
+      document.body.removeChild(parent);
+    });
+
+    it('button 内的 span 也不触发父容器（链上有 button 即归它）', () => {
+      const parent = mk('div');
+      const btn = mk('button');
+      const s = mk('span');
+      btn.appendChild(s);
+      parent.appendChild(btn);
+      document.body.appendChild(parent);
+      let hits = 0;
+      clickable.mounted(parent, { value: () => { hits += 1; }, modifiers: {} });
+
+      click(s);
+      expect(hits).toBe(0);
+
+      clickable.unmounted(parent);
+      document.body.removeChild(parent);
+    });
+
+    it('容器内嵌套另一个 v-clickable 子元素：只触发子元素', () => {
+      const parent = mk('div');
+      const child = mk('span');
+      parent.appendChild(child);
+      document.body.appendChild(parent);
+      let parentHits = 0;
+      let childHits = 0;
+      clickable.mounted(parent, { value: () => { parentHits += 1; }, modifiers: {} });
+      clickable.mounted(child, { value: () => { childHits += 1; }, modifiers: {} });
+
+      click(child);
+      expect(childHits).toBe(1);
+      expect(parentHits, '嵌套时父容器不该重复处理').toBe(0);
+
+      clickable.unmounted(child);
+      clickable.unmounted(parent);
+      document.body.removeChild(parent);
+    });
+
+    it('容器自身仍响应', () => {
+      const parent = mk('div');
+      document.body.appendChild(parent);
+      let hits = 0;
+      clickable.mounted(parent, { value: () => { hits += 1; }, modifiers: {} });
+      click(parent);
+      expect(hits).toBe(1);
+      clickable.unmounted(parent);
+      document.body.removeChild(parent);
+    });
+  });
+
+
+
+  // ── 复审 EMeowAGENT 💡2：keydown 上不得应用 .stop（否则吞掉全局快捷键）──
+  it('带 .stop 的元素上按 Enter，document 仍应收到事件（不吞全局快捷键）', () => {
+    const box = document.createElement('div');
+    document.body.appendChild(box);
+    let docSaw = 0;
+    const onDoc = (e) => { if (e.key === 'Enter') docSaw += 1; };
+    document.addEventListener('keydown', onDoc);
+
+    clickable.mounted(box, { value: () => {}, modifiers: { stop: true } });
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+
+    expect(docSaw, 'keydown 上的 .stop 不应阻止事件到达 document').toBe(1);
+
+    document.removeEventListener('keydown', onDoc);
+    clickable.unmounted(box);
+    document.body.removeChild(box);
+  });
+
+  it('click 上的 .stop 仍然生效（不能因为改 keydown 一起丢掉）', () => {
+    const outer = document.createElement('div');
+    const box = document.createElement('div');
+    outer.appendChild(box);
+    document.body.appendChild(outer);
+    let outerHits = 0;
+    outer.addEventListener('click', () => { outerHits += 1; });
+
+    clickable.mounted(box, { value: () => {}, modifiers: { stop: true } });
+    box.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(outerHits, 'click 的 .stop 必须仍然阻止冒泡').toBe(0);
+
+    clickable.unmounted(box);
+    document.body.removeChild(outer);
+  });
+
 });
